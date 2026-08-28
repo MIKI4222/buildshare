@@ -1,34 +1,83 @@
-// Evidence hash generation — deterministic SHA-256 of canonical evidence JSON.
-// This hash is intended to be stored on-chain. Never stores private tokens or
-// large diffs on-chain.
+// Evidence v1 — the canonical record of what was actually delivered and
+// approved. Its SHA-256 is what we intend to commit on-chain in P1.
+//
+// Never put on-chain: GitHub tokens, PR diffs, source code, large JSON, private
+// data. Only the 32-byte hash of this canonical object.
 
-export interface ContributionEvidence {
-  project: string;
-  task: string;
-  pullRequest: string;
-  commit: string;
-  repository: string;
-  changedFiles: number;
-  additions: number;
-  deletions: number;
-  tests: number;
+import { sha256Canonical, shortHash } from './hash';
+
+export const EVIDENCE_SCHEMA_VERSION = 'buildshare-evidence-v1';
+
+export interface EvidenceInput {
+  projectId: string;
+  taskId: string;
+  taskExternalKey: string;
+  acceptanceCriteriaHash: string;
+  rewardBps: number;
+  repositoryFullName: string;
+  baseBranch: string;
+  prNumber: number;
+  mergeCommitSha: string;
+  contributorGithubId: string | null;
+  contributorWallet: string;
+  aiEvaluationHash: string | null;
+  approvedByWallet: string;
+  approvedAt: string;
 }
 
-export function canonicalEvidenceJSON(evidence: ContributionEvidence): string {
-  // Keys in deterministic sorted order.
-  const keys = Object.keys(evidence).sort() as (keyof ContributionEvidence)[];
-  const pairs = keys.map((k) => `${JSON.stringify(k)}:${JSON.stringify(evidence[k])}`);
-  return `{${pairs.join(',')}}`;
+export interface EvidenceV1 extends EvidenceInput {
+  schemaVersion: string;
 }
 
-export async function computeEvidenceHash(evidence: ContributionEvidence): Promise<string> {
-  const data = new TextEncoder().encode(canonicalEvidenceJSON(evidence));
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+export function buildEvidenceV1(input: EvidenceInput): EvidenceV1 {
+  return {
+    schemaVersion: EVIDENCE_SCHEMA_VERSION,
+    projectId: input.projectId,
+    taskId: input.taskId,
+    taskExternalKey: input.taskExternalKey,
+    acceptanceCriteriaHash: input.acceptanceCriteriaHash,
+    rewardBps: input.rewardBps,
+    repositoryFullName: input.repositoryFullName,
+    baseBranch: input.baseBranch,
+    prNumber: input.prNumber,
+    mergeCommitSha: input.mergeCommitSha,
+    contributorGithubId: input.contributorGithubId,
+    contributorWallet: input.contributorWallet,
+    aiEvaluationHash: input.aiEvaluationHash,
+    approvedByWallet: input.approvedByWallet,
+    approvedAt: input.approvedAt,
+  };
 }
 
-export function shortHash(hash: string, prefix = 8, suffix = 6): string {
-  if (hash.length <= prefix + suffix) return hash;
-  return `${hash.slice(0, prefix)}...${hash.slice(-suffix)}`;
+export function canonicalEvidenceJSON(input: EvidenceInput): string {
+  const evidence = buildEvidenceV1(input);
+  const keys = Object.keys(evidence).sort();
+  const pairs = keys.map(
+    (k) => JSON.stringify(k) + ':' + JSON.stringify((evidence as unknown as Record<string, unknown>)[k]),
+  );
+  return '{' + pairs.join(',') + '}';
 }
+
+export async function computeEvidenceHash(input: EvidenceInput): Promise<string> {
+  return sha256Canonical(buildEvidenceV1(input));
+}
+
+// The AI evaluation is hashed separately; only its hash enters the evidence.
+// The raw model output never goes on-chain.
+export async function computeAIEvaluationHash(evaluation: {
+  model: string;
+  promptVersion: string;
+  overallScore: number;
+  recommendation: string;
+  rawResponse: string;
+}): Promise<string> {
+  return sha256Canonical({
+    model: evaluation.model,
+    promptVersion: evaluation.promptVersion,
+    overallScore: evaluation.overallScore,
+    recommendation: evaluation.recommendation,
+    rawResponse: evaluation.rawResponse,
+  });
+}
+
+export { shortHash };

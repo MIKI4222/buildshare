@@ -94,7 +94,7 @@ export function DashboardPage() {
                           </div>
                           <p className="text-sm text-ink-500 line-clamp-2">{project.description}</p>
                           <div className="flex items-center gap-4 mt-3 text-xs text-ink-400">
-                            <span className="flex items-center gap-1"><Award className="h-3.5 w-3.5" /> {bpsToPercentString(project.ownershipAllocated)} allocated</span>
+                            <span className="flex items-center gap-1"><Award className="h-3.5 w-3.5" /> {bpsToPercentString(project.allocatedBps)} allocated</span>
                             <span className="flex items-center gap-1"><FolderKanban className="h-3.5 w-3.5" /> {members.length} members</span>
                             <span className="flex items-center gap-1"><GitBranch className="h-3.5 w-3.5" /> {openTasks} open tasks</span>
                           </div>

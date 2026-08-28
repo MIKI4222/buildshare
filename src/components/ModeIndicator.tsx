@@ -1,5 +1,6 @@
 import { Badge } from './ui/Badge';
 import { useApp } from '../store/app-context';
+import { liveAvailability } from '../providers';
 
 export function ModeIndicator({ compact = false }: { compact?: boolean }) {
   const { mode } = useApp();
@@ -11,12 +12,27 @@ export function ModeIndicator({ compact = false }: { compact?: boolean }) {
   );
 }
 
+// In demo mode we never claim to be on a network: no transaction is ever sent.
 export function NetworkIndicator() {
   const { mode } = useApp();
-  const network = mode === 'demo' ? 'Devnet (Demo)' : 'Devnet';
+  if (mode === 'demo') {
+    return (
+      <Badge tone="warning" size="sm" dot>
+        No chain (Demo)
+      </Badge>
+    );
+  }
+  const availability = liveAvailability();
+  if (!availability.available) {
+    return (
+      <Badge tone="error" size="sm" dot>
+        Live not configured
+      </Badge>
+    );
+  }
   return (
     <Badge tone="info" size="sm" dot>
-      {network}
+      {availability.network === 'mainnet-beta' ? 'Mainnet' : 'Devnet'}
     </Badge>
   );
 }

@@ -1,294 +1,226 @@
-import type { AppDB, User, Project, ProjectMember, Task, PullRequest, Contribution, AIEvaluation, AuditLog } from '../domain/types';
+// Demo seed for the "AI Arbitration Escrow" project.
+//
+// P0: the seed is produced by running the REAL domain reducers, so the demo
+// data can never contain a state that the domain would reject (no fake
+// ONCHAIN status, no signature, correct committed/allocated accounting).
 
-// Demo seed data — the "AI Arbitration Escrow" project.
-// Clearly labelled as demo. Never mixed with live data.
+import type { AppDB, User } from '../domain/types';
+import type { Deps } from '../domain/reducers';
+import * as domain from '../domain/reducers';
 
-const now = Date.now();
-const isoDaysAgo = (d: number) => new Date(now - d * 86400000).toISOString();
+export const DEMO_REPO = 'buildshare-demo/ai-arbitration-escrow';
+export const DEMO_FOUNDER_WALLET = 'FounderWallet1111111111111111111111111111';
+export const DEMO_ALICE_WALLET = 'AliceWallet111111111111111111111111111111';
+export const DEMO_BOB_WALLET = 'BobWallet11111111111111111111111111111111';
 
-const founder: User = {
-  id: 'usr_founder',
-  walletAddress: 'DemoFounder111111111111111111111111111111111111',
-  githubUsername: 'buildshare-founder',
-  githubUserId: 'demo-founder-001',
-  avatarUrl: null,
-  createdAt: isoDaysAgo(30),
-};
+const T0 = '2026-01-05T09:00:00.000Z';
 
-const alice: User = {
-  id: 'usr_alice',
-  walletAddress: 'DemoAlice2222222222222222222222222222222222222',
-  githubUsername: 'alice-dev',
-  githubUserId: 'demo-alice-002',
-  avatarUrl: null,
-  createdAt: isoDaysAgo(20),
-};
+function demoUsers(): User[] {
+  return [
+    {
+      id: 'usr_founder',
+      walletAddress: DEMO_FOUNDER_WALLET,
+      githubUsername: 'buildshare-founder',
+      githubUserId: '20000001',
+      avatarUrl: null,
+      createdAt: T0,
+    },
+    {
+      id: 'usr_alice',
+      walletAddress: DEMO_ALICE_WALLET,
+      githubUsername: 'alice',
+      githubUserId: '20000002',
+      avatarUrl: null,
+      createdAt: T0,
+    },
+    {
+      id: 'usr_bob',
+      walletAddress: DEMO_BOB_WALLET,
+      githubUsername: 'bob',
+      githubUserId: '20000003',
+      avatarUrl: null,
+      createdAt: T0,
+    },
+  ];
+}
 
-const bob: User = {
-  id: 'usr_bob',
-  walletAddress: 'DemoBob33333333333333333333333333333333333333',
-  githubUsername: 'bob-frontend',
-  githubUserId: 'demo-bob-003',
-  avatarUrl: null,
-  createdAt: isoDaysAgo(15),
-};
-
-const project: Project = {
-  id: 'prj_demo_escrow',
-  name: 'AI Arbitration Escrow',
-  slug: 'ai-arbitration-escrow',
-  description: 'AI-powered decentralized escrow with dispute resolution. Funds are held on-chain until the AI arbiter or human review resolves the dispute.',
-  ownerUserId: founder.id,
-  solanaProjectPda: 'DemoPDA_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
-  githubInstallationId: 'demo-install-001',
-  githubRepoOwner: 'buildshare-demo',
-  githubRepoName: 'ai-arbitration-escrow',
-  ownershipTotal: 10000,
-  ownershipAllocated: 0,
-  ownershipRemaining: 6000, // dev pool
-  founderBps: 4000,
-  devPoolBps: 6000,
-  status: 'active',
-  category: 'DeFi',
-  createdAt: isoDaysAgo(25),
-  updatedAt: isoDaysAgo(1),
-};
-
-const members: ProjectMember[] = [
-  {
-    id: 'mem_founder',
-    projectId: project.id,
-    userId: founder.id,
-    role: 'OWNER',
-    ownershipBps: 4000,
-    lockedBps: 4000,
-    unlockedBps: 0,
-    joinedAt: isoDaysAgo(25),
-  },
-  {
-    id: 'mem_alice',
-    projectId: project.id,
-    userId: alice.id,
-    role: 'CONTRIBUTOR',
-    ownershipBps: 0,
-    lockedBps: 0,
-    unlockedBps: 0,
-    joinedAt: isoDaysAgo(18),
-  },
-  {
-    id: 'mem_bob',
-    projectId: project.id,
-    userId: bob.id,
-    role: 'CONTRIBUTOR',
-    ownershipBps: 0,
-    lockedBps: 0,
-    unlockedBps: 0,
-    joinedAt: isoDaysAgo(12),
-  },
-];
-
-const tasks: Task[] = [
-  {
-    id: 'tsk_build001',
-    projectId: project.id,
-    externalKey: 'BUILD-001',
-    title: 'Implement Solana Escrow',
-    description: 'Implement the core escrow program with init, deposit, release, and refund instructions. Use Anchor framework with proper PDA derivation.',
-    acceptanceCriteria: '- Escrow program deployed to Devnet\n- init, deposit, release, refund instructions\n- PDA-based escrow accounts\n- Unit tests for all instructions\n- Checked arithmetic throughout',
-    rewardBps: 1000,
-    status: 'VERIFYING',
-    assignedUserId: alice.id,
-    githubIssueNumber: 1,
-    deadline: isoDaysAgo(-7),
-    difficulty: 'advanced',
-    createdAt: isoDaysAgo(20),
-    updatedAt: isoDaysAgo(2),
-  },
-  {
-    id: 'tsk_build002',
-    projectId: project.id,
-    externalKey: 'BUILD-002',
-    title: 'Implement AI Arbitration',
-    description: 'Build the AI arbitration engine that evaluates dispute evidence and produces a recommendation. Create an AIProvider abstraction.',
-    acceptanceCriteria: '- AIProvider interface defined\n- analyzeContribution / verifyContribution methods\n- Structured JSON output with scores\n- Zod validation on AI response',
-    rewardBps: 800,
-    status: 'OPEN',
-    assignedUserId: null,
-    githubIssueNumber: 2,
-    deadline: isoDaysAgo(-14),
-    difficulty: 'expert',
-    createdAt: isoDaysAgo(18),
-    updatedAt: isoDaysAgo(18),
-  },
-  {
-    id: 'tsk_build003',
-    projectId: project.id,
-    externalKey: 'BUILD-003',
-    title: 'Build Frontend',
-    description: 'Build the React frontend with wallet integration, project dashboard, and ownership visualization.',
-    acceptanceCriteria: '- Wallet connection working\n- Project dashboard\n- Ownership chart\n- Responsive design',
-    rewardBps: 500,
-    status: 'CLAIMED',
-    assignedUserId: bob.id,
-    githubIssueNumber: 3,
-    deadline: isoDaysAgo(-10),
-    difficulty: 'intermediate',
-    createdAt: isoDaysAgo(15),
-    updatedAt: isoDaysAgo(5),
-  },
-  {
-    id: 'tsk_build004',
-    projectId: project.id,
-    externalKey: 'BUILD-004',
-    title: 'Write Tests',
-    description: 'Write comprehensive integration tests for the escrow program and the contribution flow.',
-    acceptanceCriteria: '- Anchor tests for all instructions\n- Frontend component tests\n- >80% coverage on critical paths',
-    rewardBps: 300,
-    status: 'OPEN',
-    assignedUserId: null,
-    githubIssueNumber: 4,
-    deadline: isoDaysAgo(-21),
-    difficulty: 'intermediate',
-    createdAt: isoDaysAgo(10),
-    updatedAt: isoDaysAgo(10),
-  },
-];
-
-const pullRequest: PullRequest = {
-  id: 'pr_17',
-  projectId: project.id,
-  taskId: 'tsk_build001',
-  githubPrId: 'demo-pr-17',
-  githubPrNumber: 17,
-  repository: 'buildshare-demo/ai-arbitration-escrow',
-  authorGithubId: 'demo-alice-002',
-  title: '[BUILD-001] Implement Solana Escrow',
-  description: 'Implements the escrow program with init, deposit, release, and refund instructions using Anchor PDAs.',
-  url: 'https://github.com/buildshare-demo/ai-arbitration-escrow/pull/17',
-  baseBranch: 'main',
-  headBranch: 'feature/escrow',
-  state: 'closed',
-  merged: true,
-  additions: 342,
-  deletions: 12,
-  changedFiles: 5,
-  openedAt: isoDaysAgo(5),
-  mergedAt: isoDaysAgo(2),
-};
-
-// Pre-seeded AI evaluation for the demo contribution
-const evaluation: AIEvaluation = {
-  id: 'eval_demo_001',
-  contributionId: 'ctr_demo_001',
-  model: 'demo-model-v1',
-  promptVersion: 'buildshare-ai-v1',
-  taskRequirements: 'Escrow program with init, deposit, release, refund; PDA accounts; unit tests; checked arithmetic.',
-  codeSummary: 'Contribution touches 5 files (+342/-12) on commit a1b2c3d. Anchor program with PDA-based escrow accounts.',
-  qualityScore: 91,
-  requirementScore: 96,
-  testScore: 95,
-  securityScore: 90,
-  overallScore: 94,
-  recommendation: 'APPROVE',
-  rawResponse: '{"score":94,"recommendation":"APPROVE"}',
-  createdAt: isoDaysAgo(2),
-};
-
-const contribution: Contribution = {
-  id: 'ctr_demo_001',
-  projectId: project.id,
-  taskId: 'tsk_build001',
-  userId: alice.id,
-  pullRequestId: pullRequest.id,
-  rewardBps: 1000,
-  status: 'PENDING_APPROVAL',
-  evidenceHash: 'a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890',
-  aiScore: 94,
-  aiRecommendation: 'APPROVE',
-  verificationReason: 'Evaluated PR "[BUILD-001] Implement Solana Escrow" against task "Implement Solana Escrow". 5 file(s) changed (+342/-12). Acceptance criteria appear satisfied. Overall score 94/100 — recommending approval.',
-  solanaSignature: null,
-  createdAt: isoDaysAgo(2),
-  verifiedAt: isoDaysAgo(2),
-};
-
-const auditLogs: AuditLog[] = [
-  {
-    id: 'aud_001',
-    projectId: project.id,
-    userId: founder.id,
-    eventType: 'PROJECT_CREATED',
-    entityType: 'project',
-    entityId: project.id,
-    metadata: { founderBps: 4000, devPoolBps: 6000 },
-    createdAt: isoDaysAgo(25),
-    solanaSignature: null,
-  },
-  {
-    id: 'aud_002',
-    projectId: project.id,
-    userId: founder.id,
-    eventType: 'TASK_CREATED',
-    entityType: 'task',
-    entityId: 'tsk_build001',
-    metadata: { key: 'BUILD-001', rewardBps: 1000 },
-    createdAt: isoDaysAgo(20),
-    solanaSignature: null,
-  },
-  {
-    id: 'aud_003',
-    projectId: project.id,
-    userId: alice.id,
-    eventType: 'TASK_CLAIMED',
-    entityType: 'task',
-    entityId: 'tsk_build001',
-    metadata: { assignee: 'alice-dev' },
-    createdAt: isoDaysAgo(18),
-    solanaSignature: null,
-  },
-  {
-    id: 'aud_004',
-    projectId: project.id,
-    userId: alice.id,
-    eventType: 'PR_LINKED',
-    entityType: 'pullrequest',
-    entityId: pullRequest.id,
-    metadata: { prNumber: 17, taskKey: 'BUILD-001' },
-    createdAt: isoDaysAgo(5),
-    solanaSignature: null,
-  },
-  {
-    id: 'aud_005',
-    projectId: project.id,
-    userId: null,
-    eventType: 'PR_MERGED',
-    entityType: 'pullrequest',
-    entityId: pullRequest.id,
-    metadata: { prNumber: 17, mergedAt: isoDaysAgo(2) },
-    createdAt: isoDaysAgo(2),
-    solanaSignature: null,
-  },
-  {
-    id: 'aud_006',
-    projectId: project.id,
-    userId: null,
-    eventType: 'AI_VERIFIED',
-    entityType: 'contribution',
-    entityId: contribution.id,
-    metadata: { score: 94, recommendation: 'APPROVE' },
-    createdAt: isoDaysAgo(2),
-    solanaSignature: null,
-  },
-];
-
-export function createDemoDB(): AppDB {
+export function emptyDB(): AppDB {
   return {
-    users: [founder, alice, bob],
-    projects: [project],
-    members,
-    tasks,
-    pullRequests: [pullRequest],
-    contributions: [contribution],
-    evaluations: [evaluation],
-    auditLogs,
+    users: demoUsers(),
+    projects: [],
+    members: [],
+    tasks: [],
+    pullRequests: [],
+    contributions: [],
+    evaluations: [],
+    auditLogs: [],
   };
+}
+
+// Deterministic clock and ids so the demo is reproducible.
+function seedDeps(): Deps {
+  let ms = Date.parse(T0);
+  let counter = 0;
+  return {
+    now: () => {
+      const iso = new Date(ms).toISOString();
+      ms += 60 * 60 * 1000;
+      return iso;
+    },
+    newId: (prefix: string) => {
+      counter += 1;
+      return prefix + '_demo_' + String(counter).padStart(4, '0');
+    },
+  };
+}
+
+export async function createDemoDB(): Promise<AppDB> {
+  const deps = seedDeps();
+  let db = emptyDB();
+
+  // 1. Founder creates the project: 40% founder / 60% development pool.
+  const created = domain.createProject(
+    db,
+    {
+      name: 'AI Arbitration Escrow',
+      slug: 'ai-arbitration-escrow',
+      description:
+        'Solana escrow with AI-assisted arbitration. Contributors earn project ownership for verified, merged work.',
+      ownerUserId: 'usr_founder',
+      founderWallet: DEMO_FOUNDER_WALLET,
+      founderBps: 4000,
+      devPoolBps: 6000,
+      category: 'Web3 Infrastructure',
+      githubRepo: DEMO_REPO,
+    },
+    deps,
+  );
+  db = created.db;
+  const projectId = created.project.id;
+
+  // 2. Four tasks reserve 26% of the development pool.
+  const taskSpecs = [
+    {
+      title: 'Implement Solana Escrow Program',
+      rewardBps: 1000,
+      difficulty: 'advanced' as const,
+      description: 'Anchor program holding funds until arbitration completes.',
+      acceptanceCriteria:
+        'Escrow PDA derived deterministically\nDeposit and release instructions implemented\nChecked arithmetic everywhere\nUnit tests for the unauthorized release path',
+      issue: 12,
+    },
+    {
+      title: 'Build Dispute Resolution UI',
+      rewardBps: 800,
+      difficulty: 'intermediate' as const,
+      description: 'Screens for opening, viewing, and resolving a dispute.',
+      acceptanceCriteria:
+        'Dispute list and detail views\nEvidence upload form with validation\nEmpty and error states\nNo layout shift on load',
+      issue: 13,
+    },
+    {
+      title: 'Write Integration Tests',
+      rewardBps: 500,
+      difficulty: 'intermediate' as const,
+      description: 'End-to-end coverage of the escrow lifecycle.',
+      acceptanceCriteria:
+        'Happy path covered\nDouble release rejected\nExpired escrow covered',
+      issue: 14,
+    },
+    {
+      title: 'Documentation and Architecture Notes',
+      rewardBps: 300,
+      difficulty: 'beginner' as const,
+      description: 'Document the escrow accounts and the arbitration flow.',
+      acceptanceCriteria:
+        'Account table documented\nSequence diagram included\nSecurity assumptions listed',
+      issue: 15,
+    },
+  ];
+
+  const taskIds: string[] = [];
+  for (const spec of taskSpecs) {
+    const result = domain.createTask(
+      db,
+      {
+        projectId,
+        actorUserId: 'usr_founder',
+        title: spec.title,
+        description: spec.description,
+        acceptanceCriteria: spec.acceptanceCriteria,
+        rewardBps: spec.rewardBps,
+        difficulty: spec.difficulty,
+        deadline: null,
+        githubIssueNumber: spec.issue,
+      },
+      deps,
+    );
+    db = result.db;
+    taskIds.push(result.task.id);
+  }
+
+  // 3. Alice claims the first task. The commitment is frozen and hashed.
+  const claimed = await domain.claimTask(db, { taskId: taskIds[0], userId: 'usr_alice' }, deps);
+  db = claimed.db;
+
+  // 4. Alice submits her merged pull request as evidence.
+  const submitted = domain.submitContribution(
+    db,
+    {
+      taskId: taskIds[0],
+      userId: 'usr_alice',
+      pullRequest: {
+        githubPrId: '1900000017',
+        githubPrNumber: 17,
+        repository: DEMO_REPO,
+        authorGithubId: '20000002',
+        title: '[BUILD-001] Implement Solana Escrow Program',
+        description:
+          'Adds the escrow Anchor program with deterministic PDAs, checked arithmetic, and tests for the unauthorized release path.',
+        url: 'https://github.com/' + DEMO_REPO + '/pull/17',
+        baseBranch: 'main',
+        headBranch: 'feature/solana-escrow',
+        additions: 486,
+        deletions: 23,
+        changedFiles: 9,
+        mergeCommitSha: '4f1c2ab9d7e30516c8ba9f1d2e4c7a80b35d9e61',
+        openedAt: '2026-01-08T12:00:00.000Z',
+        mergedAt: '2026-01-10T15:30:00.000Z',
+      },
+    },
+    deps,
+  );
+  db = submitted.db;
+
+  // 5. The AI verification is advisory only: it moves the contribution to
+  //    PENDING_APPROVAL and never allocates ownership by itself.
+  const verified = domain.recordVerification(
+    db,
+    {
+      contributionId: submitted.contribution.id,
+      verification: {
+        model: 'demo-verifier',
+        promptVersion: 'buildshare-ai-v1',
+        requirementScore: 96,
+        qualityScore: 92,
+        testScore: 94,
+        securityScore: 90,
+        overallScore: 94,
+        recommendation: 'APPROVE',
+        reason:
+          'All four acceptance criteria are implemented. PDA derivation is deterministic, arithmetic is checked, and the unauthorized release path is covered by a test.',
+        codeSummary: '9 files changed, 486 additions, 23 deletions.',
+        rawResponse: '{"recommendation":"APPROVE","implementationScore":96}',
+        evaluationHash: null,
+      },
+    },
+    deps,
+  );
+  db = verified.db;
+
+  // 6. Bob claims the second task and is still working on it.
+  const bobClaim = await domain.claimTask(db, { taskId: taskIds[1], userId: 'usr_bob' }, deps);
+  db = bobClaim.db;
+
+  return db;
 }

@@ -10,7 +10,7 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useApp } from '../store/app-context';
-import { bpsToPercentString, BPS_TOTAL } from '../domain/bps';
+import { bpsToPercentString, BPS_TOTAL, poolBreakdown } from '../domain/bps';
 import { OwnershipBar, OwnershipDonut, type OwnershipSegment } from '../components/OwnershipChart';
 import { TaskStatusBadge, ContributionStatusBadge, AIRecommendationBadge } from '../components/StatusBadges';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -18,7 +18,8 @@ import { timeAgo } from './DashboardPage';
 import { Modal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
 import { shortHash } from '../domain/evidence';
-import { explorerTxUrl } from '../providers';
+import { shortAddress } from '../lib/solana/wallet';
+import { explorerTxUrl } from '../providers/solana/types';
 import type { Difficulty } from '../domain/types';
 
 const TAB_COLOR = 'text-ink-400';
@@ -41,7 +42,7 @@ export function ProjectDetailPage() {
   const contributions = getProjectContributions(project.id);
   const activity = getProjectActivity(project.id);
   const openTasks = tasks.filter((t) => t.status === 'OPEN').length;
-  const completedTasks = tasks.filter((t) => t.status === 'COMPLETED').length;
+  const completedTasks = tasks.filter((t) => t.status === 'ONCHAIN' || t.status === 'DEMO_ALLOCATED').length;
 
   const tabs = [
     { to: `/projects/${project.id}`, label: 'Overview', icon: Layers, end: true },
@@ -128,12 +129,12 @@ function OverviewTab({ projectId }: { projectId: string }) {
   const tasks = getProjectTasks(project.id);
   const activity = getProjectActivity(project.id).slice(0, 6);
   const openTasks = tasks.filter((t) => t.status === 'OPEN').length;
-  const completedTasks = tasks.filter((t) => t.status === 'COMPLETED').length;
+  const completedTasks = tasks.filter((t) => t.status === 'ONCHAIN' || t.status === 'DEMO_ALLOCATED').length;
   const pendingContributions = project && getProjectMembers(project.id);
 
   const cards = [
-    { label: 'Allocated', value: bpsToPercentString(project.ownershipAllocated), icon: Award, tone: 'brand' },
-    { label: 'Remaining Pool', value: bpsToPercentString(project.ownershipRemaining), icon: TrendingUp, tone: 'accent' },
+    { label: 'Allocated', value: bpsToPercentString(poolBreakdown(project).allocatedBps), icon: Award, tone: 'brand' },
+    { label: 'Remaining Pool', value: bpsToPercentString(poolBreakdown(project).remainingBps), icon: TrendingUp, tone: 'accent' },
     { label: 'Open Tasks', value: openTasks.toString(), icon: GitBranch, tone: 'info' },
     { label: 'Completed', value: completedTasks.toString(), icon: CheckCircle, tone: 'success' },
     { label: 'Team Members', value: members.length.toString(), icon: Users, tone: 'warning' },
@@ -248,7 +249,7 @@ function TasksTab({ projectId }: { projectId: string }) {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
-        {['ALL', 'OPEN', 'CLAIMED', 'SUBMITTED', 'VERIFYING', 'APPROVED', 'COMPLETED'].map((f) => (
+        {['ALL', 'OPEN', 'CLAIMED', 'SUBMITTED', 'AI_REVIEW', 'PENDING_APPROVAL', 'APPROVED', 'ONCHAIN', 'DEMO_ALLOCATED', 'REJECTED', 'EXPIRED'].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -333,7 +334,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
 
   const assignee = task.assignedUserId ? getUser(task.assignedUserId) : null;
   const contribution = getProjectContributions(projectId).find((c) => c.taskId === taskId);
-  const pr = contribution ? getPR(contribution.pullRequestId) : null;
+  const pr = contribution && contribution.pullRequestId ? getPR(contribution.pullRequestId) : null;
 
   const handleClaim = () => {
     setClaiming(true);
@@ -504,7 +505,7 @@ function ContributionsTab({ projectId }: { projectId: string }) {
         contributions.map((contrib) => {
           const user = getUser(contrib.userId);
           const task = getTask(contrib.taskId);
-          const pr = getPR(contrib.pullRequestId);
+          const pr = contrib.pullRequestId ? getPR(contrib.pullRequestId) : undefined;
           return (
             <Link key={contrib.id} to={`/projects/${project.id}/contributions/${contrib.id}`}>
               <Card hover className="p-4">
@@ -547,10 +548,10 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
 
   const task = getTask(contrib.taskId);
   const user = getUser(contrib.userId);
-  const pr = getPR(contrib.pullRequestId);
+  const pr = contrib.pullRequestId ? getPR(contrib.pullRequestId) : undefined;
   const evaluation = db.evaluations.find((e) => e.contributionId === contrib.id);
   const canApprove = contrib.status === 'PENDING_APPROVAL';
-  const isOnchain = contrib.status === 'ONCHAIN';
+  const settlement = contrib.settlement;
 
   const handleApprove = async () => {
     setApproving(true);
@@ -676,8 +677,8 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
             <div>
               <p className="text-xs text-ink-400 mb-1">Evidence Hash</p>
               <div className="flex items-center gap-2">
-                <span className="text-ink-700 font-mono text-xs">{shortHash(contrib.evidenceHash)}</span>
-                <CopyButton text={contrib.evidenceHash} />
+                <span className="text-ink-700 font-mono text-xs">{contrib.evidenceHash ? shortHash(contrib.evidenceHash) : 'Not sealed yet'}</span>
+                <CopyButton text={contrib.evidenceHash || ''} />
               </div>
             </div>
             <div>
@@ -689,25 +690,25 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
       </Card>
 
       {/* On-chain result */}
-      {isOnchain && contrib.solanaSignature && (
+      {settlement && (
         <Card className="border-accent-200">
-          <CardHeader><CardTitle>On-chain Allocation</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Ownership Allocation</CardTitle></CardHeader>
           <CardBody className="space-y-3">
-            {contrib.solanaSignature.startsWith('demo_') ? (
+            {settlement.kind === 'demo' ? (
               <div className="flex items-center gap-2 text-sm text-warning-700 bg-warning-50 rounded-lg px-3 py-2">
                 <AlertCircle className="h-4 w-4" />
-                Demo Mode: ownership allocation simulated. No real on-chain transaction occurred.
+                Demo ownership allocation. No transaction was sent to Solana, so there is no signature.
               </div>
             ) : (
               <div className="space-y-2">
                 <div>
                   <p className="text-xs text-ink-400 mb-1">Transaction Signature</p>
                   <div className="flex items-center gap-2">
-                    <span className="text-ink-700 font-mono text-xs">{shortHash(contrib.solanaSignature, 10, 8)}</span>
-                    <CopyButton text={contrib.solanaSignature} />
+                    <span className="text-ink-700 font-mono text-xs">{shortHash(settlement.signature, 10, 8)}</span>
+                    <CopyButton text={settlement.signature} />
                   </div>
                 </div>
-                <a href={explorerTxUrl(contrib.solanaSignature, 'devnet')} target="_blank" rel="noopener noreferrer"
+                <a href={explorerTxUrl(settlement.signature, settlement.network)} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700">
                   View on Solana Explorer <ExternalLink className="h-3.5 w-3.5" />
                 </a>
@@ -761,7 +762,7 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
             <div className="flex items-center justify-between"><span className="text-ink-400">Task</span><span className="text-ink-900 font-medium">{task?.title}</span></div>
             <div className="flex items-center justify-between"><span className="text-ink-400">Reward</span><span className="text-ink-900 font-medium">{bpsToPercentString(contrib.rewardBps)}</span></div>
             <div className="flex items-center justify-between"><span className="text-ink-400">AI Score</span><span className="text-ink-900 font-medium">{contrib.aiScore}/100</span></div>
-            <div className="flex items-center justify-between"><span className="text-ink-400">Evidence Hash</span><span className="text-ink-900 font-mono text-xs">{shortHash(contrib.evidenceHash)}</span></div>
+            <div className="flex items-center justify-between"><span className="text-ink-400">Evidence Hash</span><span className="text-ink-900 font-mono text-xs">{contrib.evidenceHash ? shortHash(contrib.evidenceHash) : '-'}</span></div>
           </div>
           <div className="flex items-start gap-2 text-xs text-warning-700 bg-warning-50 rounded-lg px-3 py-2">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -791,7 +792,7 @@ function MembersTab({ projectId }: { projectId: string }) {
             {members.map((m) => {
               const user = getUser(m.userId);
               const contribs = db.contributions.filter((c) => c.userId === m.userId && c.projectId === project.id);
-              const completedTasks = db.tasks.filter((t) => t.assignedUserId === m.userId && t.projectId === project.id && t.status === 'COMPLETED');
+              const completedTasks = db.tasks.filter((t) => t.assignedUserId === m.userId && t.projectId === project.id && (t.status === 'ONCHAIN' || t.status === 'DEMO_ALLOCATED'));
               return (
                 <div key={m.id} className="px-5 py-4 flex items-center gap-4">
                   <div className="h-10 w-10 rounded-full bg-ink-200 flex items-center justify-center text-ink-600 font-medium text-sm shrink-0">
@@ -837,7 +838,6 @@ function OwnershipTab({ projectId }: { projectId: string }) {
   const { getProject, getProjectMembers, getUser, db } = useApp();
   const project = getProject(projectId)!;
   const members = getProjectMembers(project.id);
-  const { shortAddress } = require('../lib/solana/wallet');
 
   const segments: OwnershipSegment[] = members
     .filter((m) => m.ownershipBps > 0)
@@ -857,8 +857,8 @@ function OwnershipTab({ projectId }: { projectId: string }) {
         <CardHeader><CardTitle>Total Ownership</CardTitle></CardHeader>
         <CardBody>
           <div className="flex items-center justify-between mb-4">
-            <span className="text-2xl font-bold text-ink-900">{project.ownershipAllocated} / {BPS_TOTAL} BPS</span>
-            <span className="text-sm text-ink-400">{bpsToPercentString(project.ownershipAllocated)} allocated</span>
+            <span className="text-2xl font-bold text-ink-900">{poolBreakdown(project).totalOwnedBps} / {BPS_TOTAL} BPS</span>
+            <span className="text-sm text-ink-400">{bpsToPercentString(poolBreakdown(project).allocatedBps)} allocated to contributors</span>
           </div>
           <OwnershipDonut segments={segments} total={BPS_TOTAL} />
         </CardBody>
@@ -875,8 +875,7 @@ function OwnershipTab({ projectId }: { projectId: string }) {
                   <th className="text-left px-5 py-3 font-medium">Contributor</th>
                   <th className="text-left px-5 py-3 font-medium">Wallet</th>
                   <th className="text-right px-5 py-3 font-medium">Ownership</th>
-                  <th className="text-right px-5 py-3 font-medium">Unlocked</th>
-                  <th className="text-right px-5 py-3 font-medium">Locked</th>
+                  <th className="text-right px-5 py-3 font-medium">Allocations</th>
                   <th className="text-right px-5 py-3 font-medium">Contributions</th>
                 </tr>
               </thead>
@@ -899,8 +898,7 @@ function OwnershipTab({ projectId }: { projectId: string }) {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-right font-mono text-ink-700">{bpsToPercentString(m.ownershipBps)}</td>
-                      <td className="px-5 py-3 text-right font-mono text-ink-700">{bpsToPercentString(m.unlockedBps)}</td>
-                      <td className="px-5 py-3 text-right font-mono text-ink-700">{bpsToPercentString(m.lockedBps)}</td>
+                      <td className="px-5 py-3 text-right font-mono text-ink-700">{m.allocationCount}</td>
                       <td className="px-5 py-3 text-right text-ink-700">{contribs.length}</td>
                     </tr>
                   );
@@ -925,7 +923,7 @@ function OwnershipTab({ projectId }: { projectId: string }) {
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-xs">
                     <div><span className="text-ink-400">Ownership</span><p className="font-mono text-ink-700">{bpsToPercentString(m.ownershipBps)}</p></div>
-                    <div><span className="text-ink-400">Unlocked</span><p className="font-mono text-ink-700">{bpsToPercentString(m.unlockedBps)}</p></div>
+                    <div><span className="text-ink-400">Allocations</span><p className="font-mono text-ink-700">{m.allocationCount}</p></div>
                     <div><span className="text-ink-400">Contribs</span><p className="text-ink-700">{contribs.length}</p></div>
                   </div>
                 </div>
@@ -969,8 +967,8 @@ function ActivityTab({ projectId }: { projectId: string }) {
                     )}
                     <p className="text-xs text-ink-400 mt-0.5">{new Date(log.createdAt).toLocaleString()}</p>
                   </div>
-                  {log.solanaSignature && !log.solanaSignature.startsWith('demo_') && (
-                    <a href={explorerTxUrl(log.solanaSignature, 'devnet')} target="_blank" rel="noopener noreferrer"
+                  {log.signature && (
+                    <a href={explorerTxUrl(log.signature, log.network || 'devnet')} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 shrink-0">
                       TX <ExternalLink className="h-3 w-3" />
                     </a>

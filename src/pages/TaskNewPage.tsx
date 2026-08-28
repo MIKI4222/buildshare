@@ -32,7 +32,7 @@ export function TaskNewPage() {
   const remaining = remainingPool(project.id);
   const tasks = getProjectTasks(project.id);
   const committedBps = tasks
-    .filter((t) => ['OPEN', 'CLAIMED', 'SUBMITTED', 'VERIFYING', 'APPROVED'].includes(t.status))
+    .filter((t) => ['OPEN', 'CLAIMED', 'SUBMITTED', 'AI_REVIEW', 'PENDING_APPROVAL', 'APPROVED', 'PENDING_ONCHAIN', 'ONCHAIN_FAILED', 'REJECTED', 'EXPIRED'].includes(t.status))
     .reduce((s, t) => s + t.rewardBps, 0);
   const overflows = rewardBps > remaining;
 

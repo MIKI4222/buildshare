@@ -71,8 +71,9 @@ export async function connectWallet(): Promise<WalletAdapter> {
 
 export function getConnection(network: string = 'devnet'): Connection {
   const cluster = network as Cluster;
+  const meta = import.meta as unknown as { env?: Record<string, string | undefined> };
   const rpcUrl =
-    import.meta.env.VITE_SOLANA_RPC_URL ||
+    (meta.env ? meta.env.VITE_SOLANA_RPC_URL : undefined) ||
     clusterApiUrl(cluster === 'mainnet-beta' ? 'mainnet-beta' : 'devnet');
   return new Connection(rpcUrl, 'confirmed');
 }
@@ -82,13 +83,50 @@ export function shortAddress(addr: string, prefix = 4, suffix = 4): string {
   return `${addr.slice(0, prefix)}...${addr.slice(-suffix)}`;
 }
 
+// Copies bytes into a standalone ArrayBuffer so WebCrypto always receives a
+// plain BufferSource (a Uint8Array can be backed by a SharedArrayBuffer).
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const out = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(out).set(bytes);
+  return out;
+}
+
+// Real Ed25519 verification.
+//
+// P0 security fix: the previous implementation returned true whenever
+// signature.length > 0, which accepted ANY byte string as a valid signature.
+// A wallet address is an Ed25519 public key, so we verify the signature
+// against it with WebCrypto and refuse anything that is not verifiable.
 export async function verifyWalletSignature(
   publicKey: PublicKey,
   message: Uint8Array,
   signature: Uint8Array,
 ): Promise<boolean> {
-  // Naive verification — in production use tweetnacl.crypto.sign.detached.verify.
-  // This is the documented production auth flow (see docs/security.md).
-  // For MVP demo mode we trust the provider's signMessage result.
-  return signature.length > 0 && publicKey.toBase58().length > 0;
+  // An Ed25519 signature is exactly 64 bytes.
+  if (!(signature instanceof Uint8Array) || signature.length !== 64) return false;
+  if (!(message instanceof Uint8Array) || message.length === 0) return false;
+
+  const raw = publicKey.toBytes();
+  if (raw.length !== 32) return false;
+
+  const subtle = globalThis.crypto && globalThis.crypto.subtle;
+  if (!subtle) {
+    // Without WebCrypto we cannot verify, so we must NOT claim the signature
+    // is valid. Failing closed is the only safe option.
+    return false;
+  }
+
+  try {
+    const key = await subtle.importKey('raw', toArrayBuffer(raw), { name: 'Ed25519' }, false, [
+      'verify',
+    ]);
+    return await subtle.verify(
+      { name: 'Ed25519' },
+      key,
+      toArrayBuffer(signature),
+      toArrayBuffer(message),
+    );
+  } catch {
+    return false;
+  }
 }

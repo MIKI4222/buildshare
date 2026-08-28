@@ -1,54 +1,66 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import type {
   AppDB,
   AppMode,
-  User,
+  AuditLog,
+  Contribution,
   Project,
   ProjectMember,
-  Task,
-  Contribution,
-  AuditLog,
-  AuditEventType,
-  ContributionStatus,
-  TaskStatus,
   PullRequest,
+  Settlement,
+  Task,
+  User,
 } from '../domain/types';
-import { createDemoDB } from '../data/demo-seed';
-import { createProviders, type Providers } from '../providers';
+import { createDemoDB, emptyDB } from '../data/demo-seed';
+import { getProviders, liveAvailability, resetProviderCache, type Providers } from '../providers';
 import { ContributionService } from '../services/contribution';
-import { canTransitionTask, canTransitionContribution } from '../domain/state-machine';
-import { remainingDevPool, BPS_TOTAL } from '../domain/bps';
-import { computeEvidenceHash, type ContributionEvidence } from '../domain/evidence';
-import { parseTaskReference } from '../providers/github/types';
+import { poolBreakdown, type PoolBreakdown } from '../domain/bps';
+import { isDomainError } from '../domain/errors';
+import * as domain from '../domain/reducers';
 
-const STORAGE_KEY = 'buildshare-db-v1';
+const STORAGE_KEY = 'buildshare-db-v2';
 const MODE_KEY = 'buildshare-mode-v1';
 const WALLET_KEY = 'buildshare-wallet-v1';
 
-function loadDB(): AppDB {
+// The demo user acting in the UI. In P2 this will come from a verified wallet
+// session instead of a constant.
+export const CURRENT_USER_ID = 'usr_founder';
+export const DEMO_WALLET_ADDRESS = 'DemoWallet11111111111111111111111111111111';
+
+function loadStoredDB(): AppDB | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as AppDB;
-  } catch { /* ignore */ }
-  return createDemoDB();
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 function loadMode(): AppMode {
   try {
     const m = localStorage.getItem(MODE_KEY);
     if (m === 'demo' || m === 'live') return m;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return 'demo';
 }
 
 function loadWallet(): string | null {
   try {
     return localStorage.getItem(WALLET_KEY);
-  } catch { return null; }
-}
-
-function uid(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  } catch {
+    return null;
+  }
 }
 
 export interface CreateProjectInput {
@@ -80,16 +92,17 @@ export interface WalletState {
 
 export interface AppContextValue {
   db: AppDB;
+  ready: boolean;
   mode: AppMode;
+  modeError: string | null;
+  liveAvailable: boolean;
+  liveReason: string | null;
   wallet: WalletState;
   providers: Providers;
   contributionService: ContributionService;
-  // Mode
   setMode: (m: AppMode) => void;
-  // Wallet
   connectWallet: () => Promise<void>;
   disconnectWallet: () => void;
-  // Queries
   getProject: (id: string) => Project | undefined;
   getProjectBySlug: (slug: string) => Project | undefined;
   getProjectMembers: (projectId: string) => ProjectMember[];
@@ -97,67 +110,130 @@ export interface AppContextValue {
   getProjectContributions: (projectId: string) => Contribution[];
   getProjectActivity: (projectId: string) => AuditLog[];
   getTask: (id: string) => Task | undefined;
+  getTaskContributions: (taskId: string) => Contribution[];
   getContribution: (id: string) => Contribution | undefined;
   getPR: (id: string) => PullRequest | undefined;
   getUser: (id: string) => User | undefined;
   getUserByWallet: (wallet: string) => User | undefined;
-  // Mutations
   createProject: (input: CreateProjectInput) => Project;
   createTask: (input: CreateTaskInput) => Task;
-  claimTask: (taskId: string) => void;
+  claimTask: (taskId: string) => Promise<void>;
   approveContribution: (contributionId: string) => Promise<void>;
-  rejectContribution: (contributionId: string) => void;
+  rejectContribution: (contributionId: string, reason?: string) => void;
+  expireClaims: () => void;
   resetDemo: () => void;
-  // Derived
+  // Ownership accounting. remainingBps is always derived, never stored.
+  pool: (projectId: string) => PoolBreakdown | null;
   remainingPool: (projectId: string) => number;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+function errorMessage(e: unknown): string {
+  if (isDomainError(e)) return e.message;
+  return e instanceof Error ? e.message : String(e);
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [db, setDb] = useState<AppDB>(loadDB);
+  const [db, setDb] = useState<AppDB>(() => loadStoredDB() || emptyDB());
+  const [ready, setReady] = useState<boolean>(() => loadStoredDB() !== null);
   const [mode, setModeState] = useState<AppMode>(loadMode);
+  const [modeError, setModeError] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(loadWallet);
   const [connecting, setConnecting] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
 
-  const [providers] = useState<Providers>(() => createProviders(loadMode()));
-  const [contributionService] = useState<ContributionService>(
+  // The demo seed is built by the real reducers, which need async hashing.
+  useEffect(() => {
+    if (ready) return;
+    let cancelled = false;
+    createDemoDB().then((seeded) => {
+      if (!cancelled) {
+        setDb(seeded);
+        setReady(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+
+  const availability = useMemo(() => liveAvailability(), []);
+
+  // Providers are rebuilt whenever the mode changes: switching mode really
+  // switches the implementation. Live mode never falls back to demo.
+  const providers = useMemo<Providers>(() => {
+    try {
+      const p = getProviders(mode);
+      return p;
+    } catch (e) {
+      // Live mode is unavailable. We do NOT silently return demo providers:
+      // the mode is reverted and the error surfaced to the UI.
+      setModeError(errorMessage(e));
+      setModeState('demo');
+      return getProviders('demo');
+    }
+  }, [mode]);
+
+  const contributionService = useMemo(
     () => new ContributionService(providers.ai, providers.solana),
+    [providers],
   );
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch { /* ignore */ }
-  }, [db]);
+    if (!ready) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    } catch {
+      /* ignore */
+    }
+  }, [db, ready]);
 
   useEffect(() => {
-    try { localStorage.setItem(MODE_KEY, mode); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
   }, [mode]);
 
   useEffect(() => {
     try {
       if (walletAddress) localStorage.setItem(WALLET_KEY, walletAddress);
       else localStorage.removeItem(WALLET_KEY);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, [walletAddress]);
 
-  const setMode = useCallback((m: AppMode) => setModeState(m), []);
+  const setMode = useCallback((m: AppMode) => {
+    setModeError(null);
+    if (m === 'live') {
+      const check = liveAvailability();
+      if (!check.available) {
+        // Explicit failure instead of a silent demo fallback.
+        setModeError(check.reason || 'Live mode is not configured.');
+        return;
+      }
+    }
+    resetProviderCache();
+    setModeState(m);
+  }, []);
 
   const connectWalletFn = useCallback(async () => {
     setConnecting(true);
     setWalletError(null);
     try {
       if (mode === 'demo') {
-        // In demo mode, use a simulated wallet address.
-        const demoAddr = 'DemoUser' + Math.random().toString(36).slice(2, 10).padEnd(40, '0');
-        setWalletAddress(demoAddr);
+        setWalletAddress(DEMO_WALLET_ADDRESS);
       } else {
         const { connectWallet: connect } = await import('../lib/solana/wallet');
         const adapter = await connect();
-        setWalletAddress(adapter.publicKey!.toBase58());
+        if (!adapter.publicKey) throw new Error('Wallet did not expose a public key');
+        setWalletAddress(adapter.publicKey.toBase58());
       }
     } catch (e) {
-      setWalletError(e instanceof Error ? e.message : 'Failed to connect wallet');
+      setWalletError(errorMessage(e));
     } finally {
       setConnecting(false);
     }
@@ -170,225 +246,208 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getProjectMembers = useCallback((projectId: string) => db.members.filter((m) => m.projectId === projectId), [db.members]);
   const getProjectTasks = useCallback((projectId: string) => db.tasks.filter((t) => t.projectId === projectId), [db.tasks]);
   const getProjectContributions = useCallback((projectId: string) => db.contributions.filter((c) => c.projectId === projectId), [db.contributions]);
-  const getProjectActivity = useCallback((projectId: string) => db.auditLogs.filter((a) => a.projectId === projectId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [db.auditLogs]);
+  const getProjectActivity = useCallback(
+    (projectId: string) =>
+      db.auditLogs
+        .filter((a) => a.projectId === projectId)
+        .slice()
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [db.auditLogs],
+  );
   const getTask = useCallback((id: string) => db.tasks.find((t) => t.id === id), [db.tasks]);
+  const getTaskContributions = useCallback(
+    (taskId: string) =>
+      db.contributions.filter((c) => c.taskId === taskId).slice().sort((a, b) => a.attempt - b.attempt),
+    [db.contributions],
+  );
   const getContribution = useCallback((id: string) => db.contributions.find((c) => c.id === id), [db.contributions]);
   const getPR = useCallback((id: string) => db.pullRequests.find((p) => p.id === id), [db.pullRequests]);
   const getUser = useCallback((id: string) => db.users.find((u) => u.id === id), [db.users]);
   const getUserByWallet = useCallback((wallet: string) => db.users.find((u) => u.walletAddress === wallet), [db.users]);
 
-  const addAudit = useCallback((
-    db: AppDB,
-    projectId: string,
-    userId: string | null,
-    eventType: AuditEventType,
-    entityType: string,
-    entityId: string,
-    metadata: Record<string, string | number | boolean | null> = {},
-    solanaSignature: string | null = null,
-  ): AppDB => {
-    const log: AuditLog = {
-      id: uid('aud'),
-      projectId,
-      userId,
-      eventType,
-      entityType,
-      entityId,
-      metadata,
-      createdAt: new Date().toISOString(),
-      solanaSignature,
-    };
-    return { ...db, auditLogs: [log, ...db.auditLogs] };
-  }, []);
+  const pool = useCallback(
+    (projectId: string): PoolBreakdown | null => {
+      const project = db.projects.find((p) => p.id === projectId);
+      if (!project) return null;
+      return poolBreakdown(project);
+    },
+    [db.projects],
+  );
 
-  const createProject = useCallback((input: CreateProjectInput): Project => {
-    const projectId = uid('prj');
-    const project: Project = {
-      id: projectId,
-      name: input.name,
-      slug: input.slug || input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-      description: input.description,
-      ownerUserId: 'usr_current', // current user
-      solanaProjectPda: mode === 'demo' ? `DemoPDA_${uid('pda')}` : null,
-      githubInstallationId: null,
-      githubRepoOwner: input.githubRepo?.split('/')[0] || null,
-      githubRepoName: input.githubRepo?.split('/')[1] || null,
-      ownershipTotal: BPS_TOTAL,
-      ownershipAllocated: input.founderBps,
-      ownershipRemaining: input.devPoolBps,
-      founderBps: input.founderBps,
-      devPoolBps: input.devPoolBps,
-      status: 'active',
-      category: input.category,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const ownerMember: ProjectMember = {
-      id: uid('mem'),
-      projectId,
-      userId: 'usr_current',
-      role: 'OWNER',
-      ownershipBps: input.founderBps,
-      lockedBps: input.founderBps,
-      unlockedBps: 0,
-      joinedAt: new Date().toISOString(),
-    };
-    setDb((prev) => addAudit(
-      { ...prev, projects: [...prev.projects, project], members: [...prev.members, ownerMember] },
-      projectId, 'usr_current', 'PROJECT_CREATED', 'project', projectId,
-      { founderBps: input.founderBps, devPoolBps: input.devPoolBps },
-    ));
-    return project;
-  }, [mode, addAudit]);
+  const remainingPool = useCallback(
+    (projectId: string): number => {
+      const breakdown = pool(projectId);
+      return breakdown ? breakdown.remainingBps : 0;
+    },
+    [pool],
+  );
 
-  const createTask = useCallback((input: CreateTaskInput): Task => {
-    const project = db.projects.find((p) => p.id === input.projectId);
-    if (!project) throw new Error('Project not found');
-    const tasks = db.tasks.filter((t) => t.projectId === input.projectId);
-    const remaining = remainingDevPool(project.devPoolBps, tasks);
-    if (input.rewardBps > remaining) {
-      throw new Error(`Task reward exceeds remaining development pool (${remaining / 100}% remaining).`);
-    }
-    const taskNum = tasks.length + 1;
-    const externalKey = `BUILD-${String(taskNum).padStart(3, '0')}`;
-    const task: Task = {
-      id: uid('tsk'),
-      projectId: input.projectId,
-      externalKey,
-      title: input.title,
-      description: input.description,
-      acceptanceCriteria: input.acceptanceCriteria,
-      rewardBps: input.rewardBps,
-      status: 'OPEN',
-      assignedUserId: null,
-      githubIssueNumber: input.githubIssueNumber,
-      deadline: input.deadline,
-      difficulty: input.difficulty,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setDb((prev) => addAudit(
-      { ...prev, tasks: [...prev.tasks, task] },
-      input.projectId, 'usr_current', 'TASK_CREATED', 'task', task.id,
-      { key: externalKey, rewardBps: input.rewardBps },
-    ));
-    return task;
-  }, [db, addAudit]);
+  const createProjectFn = useCallback(
+    (input: CreateProjectInput): Project => {
+      const result = domain.createProject(db, {
+        name: input.name,
+        slug: input.slug,
+        description: input.description,
+        ownerUserId: CURRENT_USER_ID,
+        founderWallet: walletAddress || DEMO_WALLET_ADDRESS,
+        founderBps: input.founderBps,
+        devPoolBps: input.devPoolBps,
+        category: input.category,
+        githubRepo: input.githubRepo || null,
+      });
+      setDb(result.db);
+      return result.project;
+    },
+    [db, walletAddress],
+  );
 
-  const claimTask = useCallback((taskId: string) => {
-    setDb((prev) => {
-      const task = prev.tasks.find((t) => t.id === taskId);
-      if (!task) return prev;
-      if (task.status !== 'OPEN') return prev;
-      if (!canTransitionTask('OPEN', 'CLAIMED')) return prev;
-      const updated = { ...task, status: 'CLAIMED' as TaskStatus, assignedUserId: 'usr_current', updatedAt: new Date().toISOString() };
-      const newDb = {
-        ...prev,
-        tasks: prev.tasks.map((t) => t.id === taskId ? updated : t),
-      };
-      return addAudit(newDb, task.projectId, 'usr_current', 'TASK_CLAIMED', 'task', taskId, { assignee: 'current' });
-    });
-  }, [addAudit]);
+  const createTaskFn = useCallback(
+    (input: CreateTaskInput): Task => {
+      // Pool validation lives in the domain, not in the form.
+      const result = domain.createTask(db, {
+        projectId: input.projectId,
+        actorUserId: CURRENT_USER_ID,
+        title: input.title,
+        description: input.description,
+        acceptanceCriteria: input.acceptanceCriteria,
+        rewardBps: input.rewardBps,
+        difficulty: input.difficulty,
+        deadline: input.deadline,
+        githubIssueNumber: input.githubIssueNumber,
+      });
+      setDb(result.db);
+      return result.task;
+    },
+    [db],
+  );
 
-  const approveContribution = useCallback(async (contributionId: string) => {
-    const contribution = db.contributions.find((c) => c.id === contributionId);
-    if (!contribution) throw new Error('Contribution not found');
-    if (contribution.status !== 'PENDING_APPROVAL') throw new Error('Contribution is not pending approval');
+  const claimTaskFn = useCallback(
+    async (taskId: string) => {
+      const result = await domain.claimTask(db, { taskId, userId: CURRENT_USER_ID });
+      setDb(result.db);
+    },
+    [db],
+  );
 
-    const task = db.tasks.find((t) => t.id === contribution.taskId);
-    if (!task) throw new Error('Task not found');
-    const project = db.projects.find((p) => p.id === contribution.projectId);
-    if (!project) throw new Error('Project not found');
-    if (task.rewardBps <= 0) throw new Error('Task reward must be positive');
-    if (project.ownershipRemaining < task.rewardBps) throw new Error('Insufficient ownership remaining');
+  const approveContributionFn = useCallback(
+    async (contributionId: string) => {
+      // 1. Founder approval fixes the evidence hash.
+      const approved = await domain.approveContribution(db, {
+        contributionId,
+        approverUserId: CURRENT_USER_ID,
+      });
+      let next = approved.db;
+      const contribution = approved.contribution;
+      const task = domain.requireTask(next, contribution.taskId);
+      const project = domain.requireProject(next, contribution.projectId);
+      const contributor = domain.requireUser(next, contribution.userId);
 
-    // Allocate on-chain (demo or live)
-    const result = await contributionService.allocateOwnership({
-      contributorWallet: db.users.find((u) => u.id === contribution.userId)?.walletAddress || '',
-      projectId: contribution.projectId,
-      taskId: contribution.taskId,
-      rewardBps: task.rewardBps,
-      evidenceHash: contribution.evidenceHash,
-    });
-
-    setDb((prev) => {
-      const mem = prev.members.find((m) => m.projectId === contribution.projectId && m.userId === contribution.userId);
-      const newMembers = mem
-        ? prev.members.map((m) => m.id === mem.id ? { ...m, ownershipBps: m.ownershipBps + task.rewardBps, unlockedBps: m.unlockedBps + task.rewardBps } : m)
-        : [...prev.members, {
-            id: uid('mem'),
-            projectId: contribution.projectId,
-            userId: contribution.userId,
-            role: 'CONTRIBUTOR' as const,
-            ownershipBps: task.rewardBps,
-            lockedBps: 0,
-            unlockedBps: task.rewardBps,
-            joinedAt: new Date().toISOString(),
-          }];
-
-      const newTasks = prev.tasks.map((t) => t.id === task.id ? { ...t, status: 'COMPLETED' as TaskStatus } : t);
-      const newProject = {
-        ...prev.projects.find((p) => p.id === contribution.projectId)!,
-        ownershipAllocated: project.ownershipAllocated + task.rewardBps,
-        ownershipRemaining: project.ownershipRemaining - task.rewardBps,
-        updatedAt: new Date().toISOString(),
-      };
-      const newProjects = prev.projects.map((p) => p.id === newProject.id ? newProject : p);
-      const newContrib = prev.contributions.map((c) => c.id === contributionId ? {
-        ...c,
-        status: 'ONCHAIN' as ContributionStatus,
-        solanaSignature: result.signature,
-      } : c);
-
-      let newDb: AppDB = {
-        ...prev,
-        members: newMembers,
-        tasks: newTasks,
-        projects: newProjects,
-        contributions: newContrib,
+      const allocationInput = {
+        projectId: project.id,
+        taskId: task.id,
+        contributionId: contribution.id,
+        contributorWallet: contributor.walletAddress,
+        rewardBps: contribution.rewardBps,
+        evidenceHash: contribution.evidenceHash || '',
+        attempt: contribution.attempt,
       };
 
-      newDb = addAudit(newDb, contribution.projectId, 'usr_current', 'CONTRIBUTION_APPROVED', 'contribution', contributionId,
-        { score: contribution.aiScore, recommendation: contribution.aiRecommendation });
-      newDb = addAudit(newDb, contribution.projectId, 'usr_current', 'OWNERSHIP_ALLOCATED', 'contribution', contributionId,
-        { amountBps: task.rewardBps, contributor: contribution.userId }, result.signature);
+      if (providers.solana.mode === 'demo') {
+        // 2a. Demo: allocate locally. No signature exists, and the status is
+        // DEMO_ALLOCATED, never ONCHAIN.
+        const result = await providers.solana.allocateOwnership(allocationInput);
+        const settlement: Settlement = {
+          kind: 'demo',
+          allocatedAt: new Date().toISOString(),
+          pda: result.pda,
+        };
+        next = domain.settleAllocation(next, { contributionId, settlement }).db;
+        setDb(next);
+        return;
+      }
 
-      return newDb;
-    });
-  }, [db, contributionService, addAudit]);
+      // 2b. Live: PENDING_ONCHAIN -> real transaction -> ONCHAIN, or
+      // ONCHAIN_FAILED. No fake signature is ever produced.
+      next = domain.beginAllocation(next, { contributionId }).db;
+      setDb(next);
+      try {
+        const result = await providers.solana.allocateOwnership(allocationInput);
+        if (result.kind !== 'onchain') {
+          throw new Error('Live provider returned a non on-chain result');
+        }
+        const settlement: Settlement = {
+          kind: 'onchain',
+          allocatedAt: new Date().toISOString(),
+          pda: result.pda,
+          signature: result.signature,
+          network: result.network,
+        };
+        next = domain.settleAllocation(next, { contributionId, settlement }).db;
+        setDb(next);
+      } catch (e) {
+        next = domain.failAllocation(next, { contributionId, reason: errorMessage(e) }).db;
+        setDb(next);
+        throw e;
+      }
+    },
+    [db, providers],
+  );
 
-  const rejectContribution = useCallback((contributionId: string) => {
-    setDb((prev) => {
-      const contrib = prev.contributions.find((c) => c.id === contributionId);
-      if (!contrib) return prev;
-      const newContrib = prev.contributions.map((c) => c.id === contributionId ? { ...c, status: 'REJECTED' as ContributionStatus } : c);
-      const newTasks = prev.tasks.map((t) => t.id === contrib.taskId ? { ...t, status: 'REJECTED' as TaskStatus } : t);
-      let newDb: AppDB = { ...prev, contributions: newContrib, tasks: newTasks };
-      return addAudit(newDb, contrib.projectId, 'usr_current', 'CONTRIBUTION_REJECTED', 'contribution', contributionId,
-        { reason: 'Rejected by project owner' });
-    });
-  }, [addAudit]);
+  const rejectContributionFn = useCallback(
+    (contributionId: string, reason?: string) => {
+      const result = domain.rejectContribution(db, {
+        contributionId,
+        actorUserId: CURRENT_USER_ID,
+        reason: reason || 'Rejected by the project founder: acceptance criteria not met.',
+      });
+      setDb(result.db);
+    },
+    [db],
+  );
 
-  const resetDemo = useCallback(() => {
-    const fresh = createDemoDB();
-    setDb(fresh);
-  }, []);
-
-  const remainingPool = useCallback((projectId: string) => {
-    const project = db.projects.find((p) => p.id === projectId);
-    if (!project) return 0;
-    const tasks = db.tasks.filter((t) => t.projectId === projectId);
-    return remainingDevPool(project.devPoolBps, tasks);
+  const expireClaimsFn = useCallback(() => {
+    const result = domain.expireClaims(db);
+    if (result.expired.length > 0) setDb(result.db);
   }, [db]);
 
+  const resetDemo = useCallback(() => {
+    setReady(false);
+    setDb(emptyDB());
+  }, []);
+
   const value: AppContextValue = {
-    db, mode, wallet: { address: walletAddress, connecting, error: walletError },
-    providers, contributionService,
+    db,
+    ready,
+    mode,
+    modeError,
+    liveAvailable: availability.available,
+    liveReason: availability.reason,
+    wallet: { address: walletAddress, connecting, error: walletError },
+    providers,
+    contributionService,
     setMode,
-    connectWallet: connectWalletFn, disconnectWallet,
-    getProject, getProjectBySlug, getProjectMembers, getProjectTasks, getProjectContributions,
-    getProjectActivity, getTask, getContribution, getPR, getUser, getUserByWallet,
-    createProject, createTask, claimTask, approveContribution, rejectContribution, resetDemo,
+    connectWallet: connectWalletFn,
+    disconnectWallet,
+    getProject,
+    getProjectBySlug,
+    getProjectMembers,
+    getProjectTasks,
+    getProjectContributions,
+    getProjectActivity,
+    getTask,
+    getTaskContributions,
+    getContribution,
+    getPR,
+    getUser,
+    getUserByWallet,
+    createProject: createProjectFn,
+    createTask: createTaskFn,
+    claimTask: claimTaskFn,
+    approveContribution: approveContributionFn,
+    rejectContribution: rejectContributionFn,
+    expireClaims: expireClaimsFn,
+    resetDemo,
+    pool,
     remainingPool,
   };
 
