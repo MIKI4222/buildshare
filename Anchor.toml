@@ -1,0 +1,25 @@
+[toolchain]
+anchor_version = "1.1.2"
+package_manager = "npm"
+
+[features]
+resolution = true
+skip-lint = false
+
+# PROGRAM_ID: NOT GENERATED.
+# The value below is the frozen placeholder from DESIGN FREEZE v1.2 SS17.
+# It is NOT a real program id and NOT a keypair. Run `anchor keys sync` only
+# when you have decided to create the deploy keypair; that step is deliberately
+# not part of P1 STEP 2.
+[programs.devnet]
+buildshare = "BUILD_SHARE_PROGRAM_ID"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "npx tsx --test tests/anchor/*.test.ts"

@@ -36,7 +36,7 @@ export class DemoSolanaProvider implements SolanaProvider {
     return { kind: 'demo', pda, network: this.network };
   }
 
-  async deriveProjectPda(projectId: string, founderWallet: string): Promise<string> {
-    return demoPda(['project', founderWallet, projectId]);
+  async deriveProjectPda(onchainProjectId: number, founderWallet: string): Promise<string> {
+    return demoPda(['project', founderWallet, String(onchainProjectId)]);
   }
 }

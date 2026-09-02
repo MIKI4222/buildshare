@@ -159,6 +159,18 @@ export async function createDemoDB(): Promise<AppDB> {
     taskIds.push(result.task.id);
   }
 
+  // Fixed demo on-chain task ids 0-3 (DESIGN FREEZE v1.2 §9) so that PDA
+  // derivation in the demo is deterministic. createTask deliberately leaves
+  // onchainTaskId null; on chain the id comes from project.task_count, which
+  // starts at 0. The demo mirrors that ordering and changes nothing else.
+  db = {
+    ...db,
+    tasks: db.tasks.map((task) => {
+      const index = taskIds.indexOf(task.id);
+      return index === -1 ? task : { ...task, onchainTaskId: index };
+    }),
+  };
+
   // 3. Alice claims the first task. The commitment is frozen and hashed.
   const claimed = await domain.claimTask(db, { taskId: taskIds[0], userId: 'usr_alice' }, deps);
   db = claimed.db;

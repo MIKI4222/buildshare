@@ -189,9 +189,14 @@ export function createProject(
   assertValidSplit(input.founderBps, input.devPoolBps);
   const at = deps.now();
   const projectId = deps.newId('prj');
+  // Founder-scoped counter, deliberately NOT Date.now() and not random: the
+  // Project PDA must be reproducible across runs and environments.
+  const onchainProjectId =
+    db.projects.filter((p) => p.founderWallet === input.founderWallet).length + 1;
   const repo = input.githubRepo ? input.githubRepo.split('/') : [];
   const project: Project = {
     id: projectId,
+    onchainProjectId,
     name: input.name,
     slug:
       input.slug ||
@@ -295,6 +300,7 @@ export function createTask(
   const task: Task = {
     id: deps.newId('tsk'),
     projectId: input.projectId,
+    onchainTaskId: null,
     externalKey,
     title: input.title,
     description: input.description,

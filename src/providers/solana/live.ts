@@ -15,6 +15,7 @@ import type {
   SolanaResult,
 } from './types';
 import { assertProgramId, explorerTxUrl, isRealSignature, validateProgramId } from './types';
+import { projectSeeds } from '../../lib/solana/pda';
 
 export const DEFAULT_RPC: Record<SolanaNetwork, string> = {
   devnet: 'https://api.devnet.solana.com',
@@ -104,7 +105,7 @@ export class LiveSolanaProvider implements SolanaProvider {
     return import('@solana/web3.js');
   }
 
-  async deriveProjectPda(projectId: string, founderWallet: string): Promise<string> {
+  async deriveProjectPda(onchainProjectId: number, founderWallet: string): Promise<string> {
     const web3 = (await this.web3()) as {
       PublicKey: new (value: string) => unknown;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -119,9 +120,10 @@ export class LiveSolanaProvider implements SolanaProvider {
     };
     const founder = new PublicKey(founderWallet);
     const program = new PublicKey(this.programId);
-    const encoder = new TextEncoder();
+    // Frozen seed tuple: b"project" + founder + u64 little-endian project id,
+    // 7 + 32 + 8 = 47 bytes (DESIGN FREEZE v1.2 §0.2, §8). Never UTF-8 text.
     const [pda] = PublicKey.findProgramAddressSync(
-      [encoder.encode('project'), founder.toBuffer(), encoder.encode(projectId)],
+      projectSeeds(founder.toBuffer(), onchainProjectId),
       program,
     );
     return pda.toBase58();

@@ -78,6 +78,9 @@ export interface TaskCommitment {
 export interface Task {
   id: string;
   projectId: string;
+  // On-chain u64 task id. Null until the task exists on chain; on chain the id
+  // comes from project.task_count, which is monotonic and starts at 0.
+  onchainTaskId: number | null;
   externalKey: string; // e.g. BUILD-001
   title: string;
   description: string;
@@ -181,6 +184,9 @@ export interface Contribution {
 
 export interface Project {
   id: string;
+  // On-chain u64 identifier, founder-scoped. Frozen: it is the third Project
+  // PDA seed, encoded as 8 bytes little-endian (DESIGN FREEZE v1.2 §0.2, §8).
+  onchainProjectId: number;
   name: string;
   slug: string;
   description: string;

@@ -5,6 +5,10 @@
 
 import { domainError } from '../../domain/errors';
 
+// Re-export ONLY (DESIGN FREEZE v1.2 §9). The implementation lives in
+// src/lib/solana/pda.ts and remains the single source of truth for seed bytes.
+export { u64le } from '../../lib/solana/pda';
+
 export type SolanaNetwork = 'devnet' | 'mainnet-beta';
 
 export const SOLANA_EXPLORER_BASE = 'https://explorer.solana.com';
@@ -42,7 +46,7 @@ export interface SolanaProvider {
   readonly mode: 'demo' | 'live';
   readonly network: SolanaNetwork;
   allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult>;
-  deriveProjectPda(projectId: string, founderWallet: string): Promise<string>;
+  deriveProjectPda(onchainProjectId: number, founderWallet: string): Promise<string>;
 }
 
 // A signature is real only if it looks like a real base58 signature AND does

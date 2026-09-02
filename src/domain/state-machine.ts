@@ -10,15 +10,19 @@ import type { AppMode, ContributionStatus, LifecycleStatus, TaskStatus } from '.
 
 export const TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   OPEN: ['CLAIMED', 'BLOCKED'],
-  CLAIMED: ['SUBMITTED', 'EXPIRED', 'OPEN', 'BLOCKED'],
+  // D1: a CLAIMED task cannot be cancelled from under the contributor, which
+  // mirrors the on-chain cancel_task guard (Open | Expired | Rejected only).
+  CLAIMED: ['SUBMITTED', 'EXPIRED', 'OPEN'],
   SUBMITTED: ['AI_REVIEW', 'REJECTED', 'BLOCKED'],
   AI_REVIEW: ['PENDING_APPROVAL', 'REJECTED', 'BLOCKED'],
   PENDING_APPROVAL: ['APPROVED', 'REJECTED', 'BLOCKED'],
   APPROVED: ['PENDING_ONCHAIN', 'DEMO_ALLOCATED'],
   PENDING_ONCHAIN: ['ONCHAIN', 'ONCHAIN_FAILED'],
   ONCHAIN_FAILED: ['PENDING_ONCHAIN'],
-  REJECTED: ['CLAIMED', 'OPEN'],
-  EXPIRED: ['OPEN'],
+  // D2: an abandoned attempt must not lock its reservation forever, which
+  // mirrors the on-chain cancel_task guard (Open | Expired | Rejected).
+  REJECTED: ['CLAIMED', 'OPEN', 'BLOCKED'],
+  EXPIRED: ['OPEN', 'BLOCKED'],
   BLOCKED: ['OPEN'],
   ONCHAIN: [],
   DEMO_ALLOCATED: [],
