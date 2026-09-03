@@ -1,3 +1,14 @@
+> **HISTORICAL DOCUMENT - SUPERSEDED.**
+> This audit describes the repository at commit `b3d0118`, before the Rust
+> toolchain was available. Its NOT RUN findings are no longer accurate:
+> the program compiles, the Program ID is generated, the Anchor suite runs,
+> and the program is deployed to Solana Devnet.
+>
+> Current, verified status lives in [`README.md`](./README.md),
+> [`DEVNET-PROOF.md`](./DEVNET-PROOF.md) and
+> [`DEVNET-PROOF-BRANCHES.md`](./DEVNET-PROOF-BRANCHES.md).
+> Kept unedited as a record of the audit trail.
+
 # BuildShare — B1 Patch Audit Report
 
 **Scope:** P0 patch B1 (DESIGN FREEZE v1.2 §1 B1, §9), applied to close STOP-2.
