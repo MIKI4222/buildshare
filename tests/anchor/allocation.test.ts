@@ -51,7 +51,13 @@ let web3: any;
 let program: any;
 let provider: any;
 let founder: any; // the provider wallet, founder of every project below
-let projectCounter = 0;
+// Each test process needs its own project_id namespace: the Project PDA is
+// ["project", founder, project_id] and every test file shares the same
+// provider wallet as founder. Fixed counters made the two files derive
+// identical PDAs (System Program: "already in use"), and made reruns collide
+// with state left on a persistent validator ledger.
+const PROJECT_ID_BASE = Math.floor(Math.random() * 2 ** 40);
+let projectCounter = PROJECT_ID_BASE;
 
 function u64le(value: number): Buffer {
   const buf = Buffer.alloc(8);

@@ -12,6 +12,9 @@ skip-lint = false
 [programs.devnet]
 buildshare = "6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G"
 
+[programs.localnet]
+buildshare = "6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G"
+
 [registry]
 url = "https://api.apr.dev"
 
