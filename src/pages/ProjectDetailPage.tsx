@@ -12,6 +12,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { useApp } from '../store/app-context';
 import { bpsToPercentString, BPS_TOTAL, poolBreakdown } from '../domain/bps';
 import { OwnershipBar, OwnershipDonut, type OwnershipSegment } from '../components/OwnershipChart';
+import { OnchainProjectPanel } from '../components/OnchainProjectPanel';
 import { TaskStatusBadge, ContributionStatusBadge, AIRecommendationBadge } from '../components/StatusBadges';
 import { CopyButton } from '../components/ui/CopyButton';
 import { timeAgo } from './DashboardPage';
@@ -172,6 +173,8 @@ function OverviewTab({ projectId }: { projectId: string }) {
           </Card>
         ))}
       </div>
+
+      <OnchainProjectPanel project={project} />
 
       <div className="grid lg:grid-cols-2 gap-6">
         <Card>
