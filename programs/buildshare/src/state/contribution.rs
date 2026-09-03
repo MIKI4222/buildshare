@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 /// FROZEN. `Settled` (not `Onchain`): the on-chain vocabulary must not borrow a
 /// client-side status name. The P0 client maps `Settled` -> `ONCHAIN`.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum ContributionStatus {
     Submitted = 0,
     Approved = 1,

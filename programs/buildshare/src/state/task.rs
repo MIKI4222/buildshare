@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 
 /// FROZEN discriminants. Never renumber: the value is stored on chain.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum TaskStatus {
     Open = 0,
     Claimed = 1,

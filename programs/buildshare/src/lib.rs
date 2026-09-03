@@ -6,7 +6,7 @@
 //! instructions and the real ownership accounting core (see allocation.rs).
 //! There is no `unimplemented!()` left anywhere in the program.
 //!
-//! PROGRAM_ID: NOT GENERATED. `declare_id!` below holds a placeholder.
+//! PROGRAM_ID: generated for the Devnet deploy target (P1 STEP 5).
 
 use anchor_lang::prelude::*;
 
@@ -24,11 +24,10 @@ pub use errors::BuildshareError;
 pub use instructions::*;
 pub use state::*;
 
-// PROGRAM_ID: NOT GENERATED.
-// Syntactically valid placeholder so the crate can be parsed. NOT a deploy
-// target and NOT derived from any keypair. `anchor keys sync` will replace it
-// when the program keypair is deliberately created (not part of P1 STEP 2).
-declare_id!("BUILDSHARE1111111111111111111111111111111111");
+// PROGRAM_ID: derived from target/deploy/buildshare-keypair.json, which is
+// local and gitignored. The program is NOT yet deployed to any cluster;
+// deployment status is tracked in README.md.
+declare_id!("6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G");
 
 #[program]
 pub mod buildshare {

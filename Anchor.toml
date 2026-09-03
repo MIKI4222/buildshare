@@ -6,13 +6,11 @@ package_manager = "npm"
 resolution = true
 skip-lint = false
 
-# PROGRAM_ID: NOT GENERATED.
-# The value below is the frozen placeholder from DESIGN FREEZE v1.2 SS17.
-# It is NOT a real program id and NOT a keypair. Run `anchor keys sync` only
-# when you have decided to create the deploy keypair; that step is deliberately
-# not part of P1 STEP 2.
+# PROGRAM_ID: generated for the Devnet deploy target (P1 STEP 5).
+# Derived from target/deploy/buildshare-keypair.json, which is gitignored.
+# The program is NOT yet deployed to any cluster; see README.md for status.
 [programs.devnet]
-buildshare = "BUILD_SHARE_PROGRAM_ID"
+buildshare = "6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G"
 
 [registry]
 url = "https://api.apr.dev"
