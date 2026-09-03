@@ -14,8 +14,9 @@ BuildShare is not a bounty or payment platform. Nothing is paid out; ownership i
 
 ## Current status
 
-This repository is at **P1: Solana on-chain MVP**. The on-chain program is written; it has not yet been compiled or
-deployed. The table below is the honest state of verification as of the latest commit.
+This repository is at **P1: Solana on-chain MVP**. The on-chain program is compiled, deployed to Solana Devnet and
+exercised end to end: one contributor ownership allocation has been settled on chain with publicly verifiable
+transaction signatures. The table below is the honest state of verification as of the latest commit.
 
 | Item | Status | Evidence |
 | --- | --- | --- |
@@ -24,16 +25,35 @@ deployed. The table below is the honest state of verification as of the latest c
 | PDA seed parity between Rust and TypeScript | **PASS** | `tests/pda.test.ts` |
 | Lifecycle parity between Rust handlers and off-chain reducers | **PASS** | `tests/lifecycle-parity.test.ts` |
 | Allocation accounting parity | **PASS** | `tests/allocation-accounting.test.ts` |
-| Anchor program source (11 instructions) | **WRITTEN, NOT COMPILED** | `programs/buildshare/src/` |
-| `cargo check` / `cargo test` | **NOT RUN** | Rust toolchain not available in the development environment |
-| `anchor build` / `anchor test` | **NOT RUN** | Anchor and Solana CLI not available |
-| `tests/anchor/*.test.ts` | **PRESENT, BLOCKED** | requires an Anchor client package; excluded from `npm test` |
-| Program ID | **NOT GENERATED** | `Anchor.toml` and `declare_id!` hold placeholders |
-| Devnet deployment | **NOT DONE** | no transaction signatures exist yet |
+| Anchor program build (11 instructions) | **PASS** | `anchor build` — 0 errors, 310,832-byte program |
+| Rust unit tests | **PASS** | `cargo test -p buildshare --lib` — 31 tests, 0 failures |
+| Anchor integration tests | **PASS** | 29 tests, 4 suites, 0 failures, run against a validator |
+| Generated IDL vs. Design Freeze v1.2 | **PASS** | 11 instructions, 4 accounts, 10 events, 24 error codes — exact match |
+| Program ID | **GENERATED** | `6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G` |
+| Devnet deployment | **DONE** | deployed in slot 492,442,102, IDL published on chain |
+| Devnet lifecycle, ownership settled | **DONE** | 8 signatures in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md) |
 | Mainnet | **NOT DONE** | out of scope for P1 |
 
-The headline figure of 182 passing tests covers TypeScript only. It does not imply that the Rust program compiles
-or behaves correctly on a validator. Verifying that is the next milestone.
+242 tests pass across three independent layers: 182 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
+integration tests executed against a validator with the program actually deployed. The integration tests run on a
+local validator rather than Devnet, because each of them funds fresh participants by airdrop and the public faucet
+is rate limited. The Devnet evidence is the lifecycle run recorded in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md).
+
+### Deployment
+
+| Field | Value |
+| --- | --- |
+| Cluster | Solana Devnet |
+| Program ID | `6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G` |
+| Owner | `BPFLoaderUpgradeab1e11111111111111111111111` |
+| ProgramData | `EgBRC3xMmQ8Wq1LbjQkXGFUuiERUJsv5ZvP7DUWeQVbs` |
+| On-chain IDL | `7Ma8wFyspf3DagR1ibzjzoUPTXbJ1yiy9bgSKeZH1XhX` |
+| Last deployed in slot | 492,442,102 |
+| Data length | 310,832 bytes |
+
+Explorer: <https://explorer.solana.com/address/6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G?cluster=devnet>
+
+The upgrade authority is a development keypair held locally. This is a Devnet MVP, not a production deployment.
 
 A detailed audit of the most recent change, including every check that was run and every check that was not, is in
 [`BUILDShare-B1-Audit.md`](./BUILDShare-B1-Audit.md).
@@ -137,13 +157,19 @@ of how the code was produced.
 
 ## Roadmap
 
-P1 STEP 5, the next milestone, is entirely about turning written code into verifiable execution. These are
-**targets, not achievements**:
+P1 STEP 5 is complete. Written code became verifiable execution:
 
-1. Compile the Anchor program and run its tests.
-2. Generate a Program ID and deploy to Solana Devnet.
-3. Execute the full lifecycle on Devnet: project, task, claim, evidence, approval, ownership allocation.
-4. Publish transaction signatures that anyone can verify in Solana Explorer.
+1. [x] Compile the Anchor program and run its tests.
+2. [x] Generate a Program ID and deploy to Solana Devnet.
+3. [x] Execute the full lifecycle on Devnet: project, task, claim, evidence, approval, ownership allocation.
+4. [x] Publish transaction signatures that anyone can verify in Solana Explorer.
+
+Next, and these are **targets, not achievements**:
+
+1. Point the web client at the deployed program and drive the same lifecycle from the UI.
+2. Exercise the remaining branches on Devnet: claim expiry, task cancellation, rejection and retry.
+3. Run the lifecycle with several independent contributor wallets in one project.
+4. Have the on-chain accounting reviewed by someone other than its author.
 
 The project's key metric is the number of contributor ownership allocations settled on Solana Devnet with
-publicly verifiable transaction signatures. That count is currently **zero**.
+publicly verifiable transaction signatures. That count is currently **one**. The staged targets are 10 and 20.
