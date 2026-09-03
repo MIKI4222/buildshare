@@ -32,6 +32,7 @@ transaction signatures. The table below is the honest state of verification as o
 | Program ID | **GENERATED** | `6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G` |
 | Devnet deployment | **DONE** | deployed in slot 492,442,102, IDL published on chain |
 | Devnet lifecycle, ownership settled | **DONE** | 8 signatures in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md) |
+| Devnet rejection, retry and cancellation | **DONE** | 16 on-chain assertions in [`DEVNET-PROOF-BRANCHES.md`](./DEVNET-PROOF-BRANCHES.md) |
 | Mainnet | **NOT DONE** | out of scope for P1 |
 
 242 tests pass across three independent layers: 182 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
@@ -167,9 +168,9 @@ P1 STEP 5 is complete. Written code became verifiable execution:
 Next, and these are **targets, not achievements**:
 
 1. Point the web client at the deployed program and drive the same lifecycle from the UI.
-2. Exercise the remaining branches on Devnet: claim expiry, task cancellation, rejection and retry.
+2. Exercise `expire_claim` on Devnet, which requires a seven-day claim window to elapse.
 3. Run the lifecycle with several independent contributor wallets in one project.
 4. Have the on-chain accounting reviewed by someone other than its author.
 
 The project's key metric is the number of contributor ownership allocations settled on Solana Devnet with
-publicly verifiable transaction signatures. That count is currently **one**. The staged targets are 10 and 20.
+publicly verifiable transaction signatures. That count is currently **two**. The staged targets are 10 and 20.
