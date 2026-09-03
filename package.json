@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:anchor": "node --import tsx --test tests/anchor/*.test.ts",
+    "test:rust": "cargo test --manifest-path programs/buildshare/Cargo.toml"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

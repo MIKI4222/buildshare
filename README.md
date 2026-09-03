@@ -33,9 +33,11 @@ transaction signatures. The table below is the honest state of verification as o
 | Devnet deployment | **DONE** | deployed in slot 492,442,102, IDL published on chain |
 | Devnet lifecycle, ownership settled | **DONE** | 8 signatures in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md) |
 | Devnet rejection, retry and cancellation | **DONE** | 16 on-chain assertions in [`DEVNET-PROOF-BRANCHES.md`](./DEVNET-PROOF-BRANCHES.md) |
+| Web client reads live on-chain state | **DONE** | the project page decodes the Project account straight from Devnet |
+| Web client writes on-chain state | **NOT DONE** | browser signing is not implemented; the Live provider throws |
 | Mainnet | **NOT DONE** | out of scope for P1 |
 
-242 tests pass across three independent layers: 182 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
+248 tests pass across three independent layers: 188 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
 integration tests executed against a validator with the program actually deployed. The integration tests run on a
 local validator rather than Devnet, because each of them funds fresh participants by airdrop and the public faucet
 is rate limited. The Devnet evidence is the lifecycle run recorded in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md).
@@ -119,13 +121,21 @@ one another: a **Demo** provider, which produces no signatures and can never emi
 not pass base58 validation. This separation is enforced by tests so that demo data can never be mistaken for a
 real settlement.
 
+The client reads on-chain state without shipping an Anchor client. The Project account layout is frozen at 101
+bytes, so a hand-written decoder over a DataView is enough; an account of any other length, or one not owned by
+the program, is refused rather than guessed. The project page shows the on-chain basis points next to the local
+ones and flags any field where the two disagree. Writing is a separate matter: allocating ownership from the
+browser requires wallet signing, which is not implemented, and the Live provider throws instead of pretending.
+
 ---
 
 ## Running locally
 
 ```bash
 npm install
-npm test        # 182 tests, 24 suites
+npm test              # 188 TypeScript tests, 24 suites
+npm run test:rust     # 31 Rust unit tests, needs cargo
+npm run test:anchor   # 29 integration tests, needs a running validator
 npm run dev     # starts the app in demo mode
 npx tsc --noEmit -p tsconfig.app.json
 ```
@@ -167,7 +177,7 @@ P1 STEP 5 is complete. Written code became verifiable execution:
 
 Next, and these are **targets, not achievements**:
 
-1. Point the web client at the deployed program and drive the same lifecycle from the UI.
+1. Sign transactions from the browser. Reading live on-chain state in the UI is done; writing is not.
 2. Exercise `expire_claim` on Devnet, which requires a seven-day claim window to elapse.
 3. Run the lifecycle with several independent contributor wallets in one project.
 4. Have the on-chain accounting reviewed by someone other than its author.
