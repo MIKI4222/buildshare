@@ -14,8 +14,15 @@ import type {
   SolanaProvider,
   SolanaResult,
 } from './types';
-import { assertProgramId, explorerTxUrl, isRealSignature, validateProgramId } from './types';
+import {
+  assertProgramId,
+  explorerAddressUrl,
+  explorerTxUrl,
+  isRealSignature,
+  validateProgramId,
+} from './types';
 import { projectSeeds } from '../../lib/solana/pda';
+import { decodeProjectAccount, type OnchainProjectAccount } from '../../lib/solana/decode';
 
 export const DEFAULT_RPC: Record<SolanaNetwork, string> = {
   devnet: 'https://api.devnet.solana.com',
@@ -66,6 +73,14 @@ export function readLiveConfig(): LiveConfigResult {
       programId,
     },
   };
+}
+
+export interface OnchainProjectState extends OnchainProjectAccount {
+  pda: string;
+  network: SolanaNetwork;
+  programId: string;
+  explorerUrl: string;
+  fetchedAt: string;
 }
 
 export class LiveSolanaProvider implements SolanaProvider {
@@ -143,6 +158,34 @@ export class LiveSolanaProvider implements SolanaProvider {
         network: this.network,
       },
     );
+  }
+
+  // READ-ONLY. Fetches a Project account straight from the RPC and decodes the
+  // frozen layout. It sends nothing and signs nothing, so it is available even
+  // though allocateOwnership is not. Returns null when the account does not
+  // exist yet; throws when the account exists but is not ours.
+  async fetchProjectState(projectPda: string): Promise<OnchainProjectState | null> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const info = await connection.getAccountInfo(new web3.PublicKey(projectPda));
+    if (!info) return null;
+    const owner = info.owner.toBase58();
+    if (owner !== this.programId) {
+      throw new Error(
+        'Account ' + projectPda + ' is owned by ' + owner +
+          ', not by the BuildShare program ' + this.programId + '.',
+      );
+    }
+    const account = decodeProjectAccount(new Uint8Array(info.data));
+    return {
+      ...account,
+      pda: projectPda,
+      network: this.network,
+      programId: this.programId,
+      explorerUrl: explorerAddressUrl(projectPda, this.network),
+      fetchedAt: new Date().toISOString(),
+    };
   }
 
   // Used once P1 lands: turn a confirmed signature into a settlement.
