@@ -55,19 +55,19 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 227/227, 35 suites |
+| TypeScript tests (`npm test`) | PASS, 244/244, 35 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
 | Full lifecycle executed on Devnet by script | DONE, 2 runs, 24 public signatures |
 | Web client reads live on-chain state | DONE |
-| Web client writes on-chain state | **NOT DONE — code exists, compiles, is tested, but no transaction has ever been sent from a browser** |
+| Web client writes on-chain state | **NOT DONE — the buttons exist in the UI, the code compiles and is tested, but no transaction has ever been sent from a browser** |
 | Mainnet | NOT DONE |
 | Real users | NONE |
 | `expire_claim` proven | NO — needs a 7-day claim window to elapse; will not be faked |
 | `update_task` proven | Localnet only |
 
-Total test count across three layers: 287 = 227 TypeScript + 31 Rust + 29 Anchor.
+Total test count across three layers: 304 = 244 TypeScript + 31 Rust + 29 Anchor.
 
 `npm test` does **not** glob `tests/anchor/`. Those run separately via
 `npm run test:anchor` and need a validator.
@@ -240,6 +240,19 @@ project page, not part of the create-project form. The local project must exist
 first (STOP-6), and a rejected wallet prompt must not discard typed input.
 `ProjectNewPage.tsx`, `createProject` and `createTask` signatures stay
 untouched.
+**STOP-10.** `acceptance_criteria_hash` reuses `hashAcceptanceCriteria` from
+`src/domain/commitment.ts`. `repo_ref_hash` had no client formula at all, so
+`src/domain/repo-ref.ts` defines one: `sha256Text` over
+`'buildshare-repo-ref-v1'`, the lowercased repository full name and the base
+branch. The chain never cross-checks `repo_ref_hash`, so this is a client
+convention, but it is now written down and tested rather than improvised.
+
+**STOP-11.** The task list row carries the Create on chain button
+(`src/components/OnchainTaskButton.tsx`), not a full panel per task, because a
+panel would mean one RPC read per row and the public Devnet RPC already
+answers 429. The whole card is wrapped in a react-router `Link`, so the button
+calls `preventDefault` and `stopPropagation` before anything is signed.
+
 
 ---
 
@@ -262,7 +275,8 @@ src/providers/solana/demo.ts     deterministic demo provider
 src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
-tests/                           35 TS suites, 227 tests
+src/components/OnchainTaskButton.tsx    one Create on chain button per task row
+tests/                           35 TS suites, 244 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -322,9 +336,10 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
 
 ## 9. Remaining work, in order
 
-1. `decodeTaskAccount` in `src/lib/solana/decode.ts` — required to verify
+1. DONE in `d1b36b2`. `decodeTaskAccount` in `src/lib/solana/decode.ts` verifies
    `task.task_id` and `task.project` after `create_task`.
-2. Browser `create_task`: candidate selection, PDA guard, encoder,
+2. DONE in `7bcc419` (write path) and the commit that follows it (row button).
+   Browser `create_task`: candidate selection, PDA guard, encoder,
    post-confirmation verification, `recordOnchainTask`.
 3. Browser `claim_task`, `submit_contribution`, `approve_contribution`.
 4. Extend `tests/discriminator.test.ts` to every instruction used from the
@@ -332,11 +347,12 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
 5. **Prove the write path for real.** Run `npm run dev`, switch to Live, connect
    a fresh Phantom devnet wallet, create a project through the form so that
    `founderWallet` equals the Phantom address, fund that address from the CLI
-   wallet, then press Publish. Capture the signature and the Explorer URL.
+   wallet, press Publish, and then the per-row Create on chain button on a
+   task. Capture every signature and Explorer URL.
    Only then flip the README row `Web client writes on-chain state` and add
    `DEVNET-PROOF-BROWSER.md`. Do **not** import `~/.config/solana/id.json` into
    a browser wallet.
-6. Update the README test counts to 227 TS / 287 total.
+6. Update the README test counts to 244 TS / 304 total.
 7. Optional: `update_task` on Devnet; several independent contributor wallets;
    an external accounting review; code-splitting the 624 kB bundle; a dedicated
    RPC endpoint; silencing the ambiguous glob re-export warning in
@@ -393,7 +409,10 @@ Explorer patterns:
 ## 12. Commit history of this phase
 
 ```
-835302a  feat: create a project on chain from the browser        <- HEAD
+(this commit)  feat: create a task on chain from the task list button   <- HEAD
+7bcc419  feat: create a task on chain from the browser
+d1b36b2  feat: decode Task accounts, and hand the project over in writing
+835302a  feat: create a project on chain from the browser
 9ff6b2b  feat: record confirmed on-chain ids and guard PDA collisions
 ef7299b  feat: sign allocate_ownership from the browser
 77ff961  npm scripts + README verification section
