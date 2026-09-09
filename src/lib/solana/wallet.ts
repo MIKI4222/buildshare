@@ -10,6 +10,8 @@ export interface WalletAdapter {
   connect(): Promise<{ publicKey: PublicKey }>;
   disconnect(): Promise<void>;
   signMessage(message: Uint8Array): Promise<Uint8Array>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  signTransaction(transaction: any): Promise<any>;
 }
 
 interface PhantomProvider {
@@ -19,6 +21,10 @@ interface PhantomProvider {
   connect(): Promise<{ publicKey: PublicKey }>;
   disconnect(): Promise<void>;
   signMessage(message: Uint8Array): Promise<{ signature: Uint8Array }>;
+  // Phantom and Solflare both provide this, but it stays optional here: a
+  // wallet that cannot sign transactions must be detected, not assumed.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  signTransaction?: (transaction: any) => Promise<any>;
 }
 
 interface SolflareProvider extends PhantomProvider {
@@ -65,6 +71,13 @@ export async function connectWallet(): Promise<WalletAdapter> {
     async signMessage(message: Uint8Array) {
       const sig = await provider.signMessage(message);
       return sig.signature;
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async signTransaction(transaction: any): Promise<any> {
+      if (!provider.signTransaction) {
+        throw new Error('This wallet cannot sign transactions.');
+      }
+      return provider.signTransaction(transaction);
     },
   };
 }

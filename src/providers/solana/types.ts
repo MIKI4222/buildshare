@@ -40,6 +40,13 @@ export interface AllocateOwnershipInput {
   rewardBps: number;
   evidenceHash: string;
   attempt: number;
+  // On-chain identifiers, needed only by the live provider to derive the
+  // frozen PDAs. The demo provider ignores them. onchainTaskId is nullable
+  // because a task exists locally before it exists on chain, and the live
+  // provider must refuse rather than invent an id.
+  onchainProjectId: number;
+  onchainTaskId: number | null;
+  founderWallet: string;
 }
 
 export interface SolanaProvider {

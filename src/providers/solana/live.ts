@@ -3,9 +3,9 @@
 // Rules encoded here:
 //  - It refuses to exist without a valid PROGRAM_ID (no System Program).
 //  - It never falls back to the demo provider.
-//  - It NEVER invents a signature. Until the Anchor program of P1 is deployed,
-//    allocateOwnership throws NOT_IMPLEMENTED. A missing feature is reported as
-//    a missing feature, not simulated.
+//  - It NEVER invents a signature. A signature exists only when a wallet
+//    signed a real transaction and the RPC confirmed it. With no wallet the
+//    provider refuses with LIVE_MODE_UNAVAILABLE and sends nothing.
 
 import { domainError } from '../../domain/errors';
 import type {
@@ -21,13 +21,27 @@ import {
   isRealSignature,
   validateProgramId,
 } from './types';
-import { projectSeeds } from '../../lib/solana/pda';
+import {
+  contributionSeeds,
+  memberSeeds,
+  projectSeeds,
+  taskSeeds,
+} from '../../lib/solana/pda';
 import { decodeProjectAccount, type OnchainProjectAccount } from '../../lib/solana/decode';
 
 export const DEFAULT_RPC: Record<SolanaNetwork, string> = {
   devnet: 'https://api.devnet.solana.com',
   'mainnet-beta': 'https://api.mainnet-beta.solana.com',
 };
+
+// Anchor derives an instruction discriminator as the first eight bytes of
+// sha256 of 'global:<instruction name>'. The bytes are pinned here so that a
+// rename cannot change the wire format silently, and
+// tests/discriminator.test.ts proves these really are that hash.
+export const ALLOCATE_OWNERSHIP_DISCRIMINATOR: number[] = [
+  152, 131, 229, 179, 134, 177, 241, 221,
+];
+export const CREATE_MEMBER_DISCRIMINATOR: number[] = [49, 46, 45, 241, 122, 143, 136, 73];
 
 export interface LiveSolanaConfig {
   network: SolanaNetwork;
@@ -144,20 +158,149 @@ export class LiveSolanaProvider implements SolanaProvider {
     return pda.toBase58();
   }
 
+  // Sends a real allocate_ownership transaction signed by the founder wallet.
+  //
+  // Guarantees, in order of checking:
+  //  - a task with no on-chain id is refused, never given an invented id;
+  //  - outside a browser there is no wallet, so nothing is sent;
+  //  - a wallet that is not the founder is refused BEFORE sending, because
+  //    the program would reject it and the fee would be spent for nothing;
+  //  - Member is created in the same transaction only when it is absent. The
+  //    program has no init_if_needed there on purpose: re-initialising an
+  //    existing Member would erase ownership.
   async allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult> {
-    // P1 will replace this with a real approve_and_allocate instruction.
-    // Until the program is deployed there is no honest way to produce a
-    // signature, so we fail loudly instead of faking one.
-    throw domainError(
-      'NOT_IMPLEMENTED',
-      'Live on-chain allocation requires the BuildShare Anchor program (P1). ' +
-        'No transaction was sent and no signature was produced.',
-      {
-        contributionId: input.contributionId,
-        programId: this.programId,
-        network: this.network,
-      },
+    if (input.onchainTaskId === null) {
+      throw domainError(
+        'TASK_NOT_FOUND',
+        'This task does not exist on chain yet, so ownership cannot be allocated. Nothing was sent.',
+        { contributionId: input.contributionId, taskId: input.taskId },
+      );
+    }
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'On-chain allocation needs a browser wallet. No transaction was sent and no signature was produced.',
+        { contributionId: input.contributionId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Install Phantom or Solflare, then retry.',
+        { contributionId: input.contributionId, network: this.network },
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const founderKey = new PublicKey(connected.toString());
+
+    if (founderKey.toBase58() !== input.founderWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'Only the founder wallet recorded in the Project account can allocate ownership. Connected: ' +
+          founderKey.toBase58() + '. Expected: ' + input.founderWallet + '.',
+        { contributionId: input.contributionId },
+      );
+    }
+
+    const program = new PublicKey(this.programId);
+    const contributor = new PublicKey(input.contributorWallet);
+    const [projectPda] = PublicKey.findProgramAddressSync(
+      projectSeeds(founderKey.toBuffer(), input.onchainProjectId),
+      program,
     );
+    const [taskPda] = PublicKey.findProgramAddressSync(
+      taskSeeds(projectPda.toBuffer(), input.onchainTaskId),
+      program,
+    );
+    const [contributionPda] = PublicKey.findProgramAddressSync(
+      contributionSeeds(taskPda.toBuffer(), contributor.toBuffer(), input.attempt),
+      program,
+    );
+    const [memberPda] = PublicKey.findProgramAddressSync(
+      memberSeeds(projectPda.toBuffer(), contributor.toBuffer()),
+      program,
+    );
+
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const tx = new web3.Transaction();
+
+    const memberInfo = await connection.getAccountInfo(memberPda);
+    if (memberInfo === null) {
+      tx.add(
+        new web3.TransactionInstruction({
+          programId: program,
+          keys: [
+            { pubkey: founderKey, isSigner: true, isWritable: true },
+            { pubkey: projectPda, isSigner: false, isWritable: true },
+            { pubkey: contributor, isSigner: false, isWritable: false },
+            { pubkey: memberPda, isSigner: false, isWritable: true },
+            { pubkey: web3.SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          data: new Uint8Array(CREATE_MEMBER_DISCRIMINATOR),
+        }),
+      );
+    }
+
+    // founder is isWritable here because it pays the fee. Anchor enforces mut
+    // only where it declares it, so a writable signer is accepted.
+    tx.add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: founderKey, isSigner: true, isWritable: true },
+          { pubkey: projectPda, isSigner: false, isWritable: true },
+          { pubkey: taskPda, isSigner: false, isWritable: true },
+          { pubkey: contributionPda, isSigner: false, isWritable: true },
+          { pubkey: memberPda, isSigner: false, isWritable: true },
+        ],
+        data: new Uint8Array(ALLOCATE_OWNERSHIP_DISCRIMINATOR),
+      }),
+    );
+
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = founderKey;
+    tx.recentBlockhash = latest.blockhash;
+
+    try {
+      const signed = await injected.signTransaction(tx);
+      const signature = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+      await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: latest.blockhash,
+          lastValidBlockHeight: latest.lastValidBlockHeight,
+        },
+        'confirmed',
+      );
+      // buildOnchainResult refuses anything that is not a real base58 signature.
+      return this.buildOnchainResult(contributionPda.toBase58(), signature);
+    } catch (e: unknown) {
+      const text = e instanceof Error ? e.message : String(e);
+      // DoubleAllocation is error 6010 -> 0x176a in a program log.
+      if (
+        text.indexOf('DoubleAllocation') !== -1 ||
+        text.indexOf('0x176a') !== -1 ||
+        text.indexOf('0x176A') !== -1
+      ) {
+        throw domainError(
+          'DOUBLE_ALLOCATION',
+          'The program refused a second allocation for this contribution. Ownership was already settled on chain.',
+          { contributionId: input.contributionId, contribution: contributionPda.toBase58() },
+        );
+      }
+      throw e;
+    }
   }
 
   // READ-ONLY. Fetches a Project account straight from the RPC and decodes the

@@ -22,6 +22,9 @@ const allocationInput = {
   rewardBps: 1000,
   evidenceHash: 'a'.repeat(64),
   attempt: 1,
+  onchainProjectId: 1,
+  onchainTaskId: 0,
+  founderWallet: WALLETS.alice,
 };
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
@@ -165,11 +168,11 @@ describe('live provider (P0.8, P0.9)', () => {
     assert.equal(provider.rpcUrl, 'https://api.devnet.solana.com');
   });
 
-  it('never invents a signature: allocation fails with NOT_IMPLEMENTED until P1', async () => {
+  it('never invents a signature: with no wallet available the live provider refuses', async () => {
     const provider = new LiveSolanaProvider({ network: 'devnet', rpcUrl: '', programId: TEST_PROGRAM_ID });
     await assert.rejects(
       () => provider.allocateOwnership(allocationInput),
-      (e: unknown) => e instanceof DomainError && e.code === 'NOT_IMPLEMENTED',
+      (e: unknown) => e instanceof DomainError && e.code === 'LIVE_MODE_UNAVAILABLE',
     );
   });
 

@@ -350,6 +350,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         rewardBps: contribution.rewardBps,
         evidenceHash: contribution.evidenceHash || '',
         attempt: contribution.attempt,
+        onchainProjectId: project.onchainProjectId,
+        onchainTaskId: task.onchainTaskId,
+        founderWallet: project.founderWallet,
       };
 
       if (providers.solana.mode === 'demo') {
