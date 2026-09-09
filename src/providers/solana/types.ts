@@ -32,6 +32,16 @@ export type SolanaResult =
       explorerUrl: string;
     };
 
+// Everything initialize_project needs. The ids are NOT computed here: they
+// come from the local project record (founder-scoped counter, STOP-7).
+export interface InitializeProjectInput {
+  projectId: string;
+  onchainProjectId: number;
+  founderWallet: string;
+  founderBps: number;
+  devPoolBps: number;
+}
+
 export interface AllocateOwnershipInput {
   projectId: string;
   taskId: string;
@@ -61,6 +71,9 @@ export interface SolanaProvider {
   // Same guard for create_task. An occupied Task PDA is a refusal, never a
   // prompt to try another id.
   ensureTaskPdaAvailable(projectPda: string, onchainTaskId: number): Promise<void>;
+  // Creates the Project account on chain. Only the live provider can do this;
+  // the demo provider refuses instead of inventing a signature.
+  initializeProject(input: InitializeProjectInput): Promise<SolanaResult>;
 }
 
 // A signature is real only if it looks like a real base58 signature AND does

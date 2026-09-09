@@ -11,7 +11,10 @@ import { createHash } from 'node:crypto';
 import {
   ALLOCATE_OWNERSHIP_DISCRIMINATOR,
   CREATE_MEMBER_DISCRIMINATOR,
+  INITIALIZE_PROJECT_DISCRIMINATOR,
+  encodeInitializeProjectData,
 } from '../src/providers/solana/live';
+import { u16le, u64le } from '../src/lib/solana/pda';
 
 function anchorDiscriminator(instruction: string): number[] {
   const digest = createHash('sha256').update('global:' + instruction).digest();
@@ -37,5 +40,41 @@ describe('anchor instruction discriminators', () => {
 
   it('the two instructions do not share a discriminator', () => {
     assert.notDeepEqual(ALLOCATE_OWNERSHIP_DISCRIMINATOR, CREATE_MEMBER_DISCRIMINATOR);
+  });
+});
+
+describe('initialize_project discriminator and instruction data', () => {
+  it('the pinned discriminator is sha256 of its global name', () => {
+    assert.deepEqual(
+      INITIALIZE_PROJECT_DISCRIMINATOR,
+      anchorDiscriminator('initialize_project'),
+    );
+  });
+
+  it('instruction data is exactly 20 bytes', () => {
+    assert.equal(encodeInitializeProjectData(1, 4_000, 6_000).length, 20);
+  });
+
+  it('lays out discriminator, u64 LE id, then two u16 LE splits', () => {
+    const data = encodeInitializeProjectData(7, 4_000, 6_000);
+    assert.deepEqual(Array.from(data.subarray(0, 8)), INITIALIZE_PROJECT_DISCRIMINATOR);
+    assert.deepEqual(Array.from(data.subarray(8, 16)), Array.from(u64le(7)));
+    assert.deepEqual(Array.from(data.subarray(16, 18)), Array.from(u16le(4_000)));
+    assert.deepEqual(Array.from(data.subarray(18, 20)), Array.from(u16le(6_000)));
+  });
+
+  it('encodes ids above 2^31 without corruption', () => {
+    const data = encodeInitializeProjectData(649_825_720_450, 4_000, 6_000);
+    assert.deepEqual(Array.from(data.subarray(8, 16)), Array.from(u64le(649_825_720_450)));
+  });
+
+  it('refuses basis points outside u16', () => {
+    assert.throws(() => encodeInitializeProjectData(1, -1, 6_000), RangeError);
+    assert.throws(() => encodeInitializeProjectData(1, 70_000, 6_000), RangeError);
+  });
+
+  it('does not collide with the other discriminators', () => {
+    assert.notDeepEqual(INITIALIZE_PROJECT_DISCRIMINATOR, ALLOCATE_OWNERSHIP_DISCRIMINATOR);
+    assert.notDeepEqual(INITIALIZE_PROJECT_DISCRIMINATOR, CREATE_MEMBER_DISCRIMINATOR);
   });
 });

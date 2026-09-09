@@ -106,3 +106,20 @@ describe('PDA seed encoding (P1 STEP 2, Rust parity)', () => {
     );
   });
 });
+
+describe('u16le', () => {
+  it('encodes little-endian, like Rust u16::to_le_bytes', async () => {
+    const { u16le } = await import('../src/lib/solana/pda');
+    assert.deepEqual(Array.from(u16le(0)), [0, 0]);
+    assert.deepEqual(Array.from(u16le(1)), [1, 0]);
+    assert.deepEqual(Array.from(u16le(10_000)), [16, 39]);
+    assert.deepEqual(Array.from(u16le(65_535)), [255, 255]);
+  });
+
+  it('refuses values a u16 cannot hold', async () => {
+    const { u16le } = await import('../src/lib/solana/pda');
+    assert.throws(() => u16le(-1), RangeError);
+    assert.throws(() => u16le(65_536), RangeError);
+    assert.throws(() => u16le(1.5), RangeError);
+  });
+});

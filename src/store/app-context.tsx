@@ -116,6 +116,8 @@ export interface AppContextValue {
   getUser: (id: string) => User | undefined;
   getUserByWallet: (wallet: string) => User | undefined;
   createProject: (input: CreateProjectInput) => Project;
+  // Sends initialize_project and records the confirmed PDA. Live mode only.
+  publishProjectOnchain: (projectId: string) => Promise<{ pda: string; signature: string }>;
   createTask: (input: CreateTaskInput) => Task;
   claimTask: (taskId: string) => Promise<void>;
   approveContribution: (contributionId: string) => Promise<void>;
@@ -301,6 +303,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [db, walletAddress],
   );
 
+  // Publishes an existing local project on chain, then records the confirmed
+  // fact. Deliberately a separate action from createProject: the local project
+  // must exist before a PDA can be recorded against it, and a rejected wallet
+  // prompt must not destroy what the user already filled in.
+  const publishProjectOnchainFn = useCallback(
+    async (projectId: string): Promise<{ pda: string; signature: string }> => {
+      const project = domain.requireProject(db, projectId);
+      if (providers.solana.mode !== 'live') {
+        throw new Error('Switch to live mode to create this project on chain.');
+      }
+      if (project.founderWallet === DEMO_WALLET_ADDRESS) {
+        throw new Error(
+          'This project was created with the demo wallet, so it has no real founder to sign for it. Create it again with a connected wallet.',
+        );
+      }
+      const result = await providers.solana.initializeProject({
+        projectId: project.id,
+        onchainProjectId: project.onchainProjectId,
+        founderWallet: project.founderWallet,
+        founderBps: project.founderBps,
+        devPoolBps: project.devPoolBps,
+      });
+      if (result.kind !== 'onchain') {
+        throw new Error('Live provider returned a non on-chain result');
+      }
+      // Only now, after a confirmed and verified account, is anything recorded.
+      const next = domain.recordOnchainProject(db, projectId, {
+        pda: result.pda,
+        onchainProjectId: project.onchainProjectId,
+      }).db;
+      setDb(next);
+      return { pda: result.pda, signature: result.signature };
+    },
+    [db, providers],
+  );
+
   const createTaskFn = useCallback(
     (input: CreateTaskInput): Task => {
       // Pool validation lives in the domain, not in the form.
@@ -444,6 +482,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     getUser,
     getUserByWallet,
     createProject: createProjectFn,
+    publishProjectOnchain: publishProjectOnchainFn,
     createTask: createTaskFn,
     claimTask: claimTaskFn,
     approveContribution: approveContributionFn,

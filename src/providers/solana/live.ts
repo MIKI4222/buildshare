@@ -10,6 +10,7 @@
 import { domainError } from '../../domain/errors';
 import type {
   AllocateOwnershipInput,
+  InitializeProjectInput,
   SolanaNetwork,
   SolanaProvider,
   SolanaResult,
@@ -26,6 +27,8 @@ import {
   memberSeeds,
   projectSeeds,
   taskSeeds,
+  u16le,
+  u64le,
 } from '../../lib/solana/pda';
 import { decodeProjectAccount, type OnchainProjectAccount } from '../../lib/solana/decode';
 
@@ -42,6 +45,24 @@ export const ALLOCATE_OWNERSHIP_DISCRIMINATOR: number[] = [
   152, 131, 229, 179, 134, 177, 241, 221,
 ];
 export const CREATE_MEMBER_DISCRIMINATOR: number[] = [49, 46, 45, 241, 122, 143, 136, 73];
+
+export const INITIALIZE_PROJECT_DISCRIMINATOR = [69, 126, 215, 37, 20, 60, 73, 235];
+
+// initialize_project instruction data, 20 bytes:
+//   8 discriminator + u64 LE project_id + u16 LE founder_bps + u16 LE dev_pool_bps.
+// Exported so tests can assert the exact bytes instead of trusting the RPC.
+export function encodeInitializeProjectData(
+  onchainProjectId: number,
+  founderBps: number,
+  devPoolBps: number,
+): Uint8Array {
+  const data = new Uint8Array(20);
+  data.set(new Uint8Array(INITIALIZE_PROJECT_DISCRIMINATOR), 0);
+  data.set(u64le(onchainProjectId), 8);
+  data.set(u16le(founderBps), 16);
+  data.set(u16le(devPoolBps), 18);
+  return data;
+}
 
 export interface LiveSolanaConfig {
   network: SolanaNetwork;
@@ -241,6 +262,125 @@ export class LiveSolanaProvider implements SolanaProvider {
   //  - Member is created in the same transaction only when it is absent. The
   //    program has no init_if_needed there on purpose: re-initialising an
   //    existing Member would erase ownership.
+  // Creates the Project account on chain: initialize_project, signed by the
+  // founder's browser wallet. The STOP-7 guard runs here, before anything is
+  // built, so no caller can skip it. After confirmation the account is read
+  // back and every field is compared with what we asked for; only then does
+  // the caller get a result it may record.
+  async initializeProject(input: InitializeProjectInput): Promise<SolanaResult> {
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'Creating a project on chain needs a browser wallet. Nothing was sent.',
+        { projectId: input.projectId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Install Phantom or Solflare, then retry.',
+        { projectId: input.projectId, network: this.network },
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const founderKey = new PublicKey(connected.toString());
+
+    if (founderKey.toBase58() !== input.founderWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'This project records a different founder wallet. Connected: ' +
+          founderKey.toBase58() + '. Expected: ' + input.founderWallet + '.',
+        { projectId: input.projectId },
+      );
+    }
+
+    // STOP-7: refuse an occupied PDA, never try another id, never send.
+    await this.ensureProjectPdaAvailable(input.onchainProjectId, input.founderWallet);
+
+    const program = new PublicKey(this.programId);
+    const [projectPda] = PublicKey.findProgramAddressSync(
+      projectSeeds(founderKey.toBuffer(), input.onchainProjectId),
+      program,
+    );
+
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const tx = new web3.Transaction();
+    // Account order and flags copied from the IDL for initialize_project.
+    tx.add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: founderKey, isSigner: true, isWritable: true },
+          { pubkey: projectPda, isSigner: false, isWritable: true },
+          { pubkey: web3.SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: encodeInitializeProjectData(
+          input.onchainProjectId,
+          input.founderBps,
+          input.devPoolBps,
+        ),
+      }),
+    );
+
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = founderKey;
+    tx.recentBlockhash = latest.blockhash;
+
+    const signed = await injected.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      'confirmed',
+    );
+
+    // Read back what the chain actually stored. A confirmed signature proves a
+    // transaction landed, not that it stored what we intended.
+    const info = await connection.getAccountInfo(projectPda);
+    if (info === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The transaction confirmed but no account exists at ' + projectPda.toBase58() +
+          '. Nothing may be recorded locally. Signature: ' + signature + '.',
+        { projectId: input.projectId, signature },
+      );
+    }
+    const decoded = decodeProjectAccount(new Uint8Array(info.data));
+    const mismatch =
+      decoded.founder !== input.founderWallet ||
+      decoded.projectId !== String(input.onchainProjectId) ||
+      decoded.founderBps !== input.founderBps ||
+      decoded.devPoolBps !== input.devPoolBps;
+    if (mismatch) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The on-chain Project account does not match what was requested. Chain: founder ' +
+          decoded.founder + ', id ' + decoded.projectId + ', ' + String(decoded.founderBps) +
+          '/' + String(decoded.devPoolBps) + '. Requested: founder ' + input.founderWallet +
+          ', id ' + String(input.onchainProjectId) + ', ' + String(input.founderBps) +
+          '/' + String(input.devPoolBps) + '. Signature: ' + signature + '.',
+        { projectId: input.projectId, signature, pda: projectPda.toBase58() },
+      );
+    }
+
+    // buildOnchainResult refuses anything that is not a real base58 signature.
+    return this.buildOnchainResult(projectPda.toBase58(), signature);
+  }
+
   async allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult> {
     if (input.onchainTaskId === null) {
       throw domainError(

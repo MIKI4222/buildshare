@@ -11,6 +11,8 @@ import type {
   SolanaResult,
 } from './types';
 import { DEMO_PDA_PREFIX } from './types';
+import type { InitializeProjectInput } from './types';
+import { domainError } from '../../domain/errors';
 import { sha256Text } from '../../domain/hash';
 
 function demoPda(parts: string[]): Promise<string> {
@@ -39,6 +41,17 @@ export class DemoSolanaProvider implements SolanaProvider {
   // Demo mode never touches a cluster, so there is nothing to check and
   // nothing to refuse. Returning quietly is honest here: no claim about the
   // chain is made either way.
+  // Demo mode has no chain, so a project cannot be created on one. Refusing
+  // is the only honest answer: a demo 'project pda' here would later be
+  // recorded as if the chain had confirmed it.
+  async initializeProject(input: InitializeProjectInput): Promise<never> {
+    throw domainError(
+      'LIVE_MODE_UNAVAILABLE',
+      'Demo mode cannot create a project on chain. Switch to live mode and connect a wallet.',
+      { projectId: input.projectId, network: this.network },
+    );
+  }
+
   async ensureProjectPdaAvailable(): Promise<void> {
     return;
   }

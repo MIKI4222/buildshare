@@ -117,3 +117,39 @@ describe('ensureTaskPdaAvailable (demo, STOP-8)', () => {
     await provider.ensureTaskPdaAvailable('anything', 0);
   });
 });
+
+describe('initializeProject refusals (STOP-9)', () => {
+  const input = {
+    projectId: 'prj_1',
+    onchainProjectId: 1,
+    founderWallet: FOUNDER,
+    founderBps: 4_000,
+    devPoolBps: 6_000,
+  };
+
+  it('the live provider refuses outside a browser and sends nothing', async () => {
+    const provider = new StubbedLive(false);
+    let caught: unknown = null;
+    try {
+      await provider.initializeProject(input);
+    } catch (e) {
+      caught = e;
+    }
+    assert.ok(caught instanceof DomainError, 'expected a DomainError');
+    assert.equal((caught as DomainError).code, 'LIVE_MODE_UNAVAILABLE');
+    // No account was read, so nothing was attempted against a cluster.
+    assert.equal(provider.checked.length, 0);
+  });
+
+  it('the demo provider refuses instead of faking a project', async () => {
+    const provider = new DemoSolanaProvider();
+    let caught: unknown = null;
+    try {
+      await provider.initializeProject(input);
+    } catch (e) {
+      caught = e;
+    }
+    assert.ok(caught instanceof DomainError, 'expected a DomainError');
+    assert.equal((caught as DomainError).code, 'LIVE_MODE_UNAVAILABLE');
+  });
+});

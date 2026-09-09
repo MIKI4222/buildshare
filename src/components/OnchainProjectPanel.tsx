@@ -1,7 +1,9 @@
 // On-chain state panel.
 //
 // Reads the Project account from Solana and shows it next to the local state.
-// It is deliberately read-only: no wallet, no signature, no transaction. In
+// Reading is the panel's main job and needs no wallet. The one exception is
+// the explicit Publish action, which signs initialize_project with the
+// founder's wallet and records the PDA only after the chain confirms it. In
 // demo mode it says so instead of pretending a chain exists, and when the RPC
 // fails it shows the failure rather than an empty card.
 
@@ -11,6 +13,7 @@ import { Badge } from './ui/Badge';
 import { useApp } from '../store/app-context';
 import { LiveSolanaProvider, type OnchainProjectState } from '../providers/solana/live';
 import { projectInvariantsHold } from '../lib/solana/decode';
+import { explorerTxUrl } from '../providers/solana/types';
 import { bpsToPercentString } from '../domain/bps';
 import type { Project } from '../domain/types';
 
@@ -20,6 +23,12 @@ type LoadState =
   | { status: 'missing'; pda: string }
   | { status: 'error'; message: string }
   | { status: 'loaded'; state: OnchainProjectState };
+
+type PublishState =
+  | { status: 'idle' }
+  | { status: 'sending' }
+  | { status: 'done'; signature: string }
+  | { status: 'error'; message: string };
 
 function Row(props: { label: string; local?: string; chain: string; mismatch?: boolean }) {
   return (
@@ -38,8 +47,25 @@ function Row(props: { label: string; local?: string; chain: string; mismatch?: b
 }
 
 export function OnchainProjectPanel({ project }: { project: Project }) {
-  const { mode, providers } = useApp();
+  const { mode, providers, publishProjectOnchain } = useApp();
   const [load, setLoad] = useState<LoadState>({ status: 'idle' });
+  const [publish, setPublish] = useState<PublishState>({ status: 'idle' });
+  // Bumped after a confirmed publish so the panel re-reads the account.
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const onPublish = async () => {
+    setPublish({ status: 'sending' });
+    try {
+      const result = await publishProjectOnchain(project.id);
+      setPublish({ status: 'done', signature: result.signature });
+      setReloadKey((k) => k + 1);
+    } catch (e: unknown) {
+      setPublish({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'The project was not created on chain.',
+      });
+    }
+  };
 
   useEffect(() => {
     if (mode !== 'live' || providers.solana.mode !== 'live') {
@@ -66,7 +92,7 @@ export function OnchainProjectPanel({ project }: { project: Project }) {
     return () => {
       cancelled = true;
     };
-  }, [mode, providers, project.onchainProjectId, project.founderWallet, project.solanaProjectPda]);
+  }, [mode, providers, project.onchainProjectId, project.founderWallet, project.solanaProjectPda, reloadKey]);
 
   return (
     <Card>
@@ -92,13 +118,47 @@ export function OnchainProjectPanel({ project }: { project: Project }) {
         ) : null}
 
         {load.status === 'missing' ? (
-          <p className="text-sm text-ink-400 py-6 text-center">
-            No account at {load.pda}. This project has not been created on chain yet.
-          </p>
+          <div className="py-6 space-y-3 text-center">
+            <p className="text-sm text-ink-400">
+              No account at {load.pda}. This project exists locally only. It has not
+              been created on chain yet.
+            </p>
+            {publish.status === 'error' ? (
+              <p className="text-sm text-error-600">{publish.message}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={onPublish}
+              disabled={publish.status === 'sending'}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {publish.status === 'sending'
+                ? 'Waiting for your wallet...'
+                : 'Create this project on chain'}
+            </button>
+            <p className="text-xs text-ink-400">
+              Signs initialize_project with your connected wallet. Nothing is recorded
+              locally until the transaction is confirmed and the account is read back.
+            </p>
+          </div>
         ) : null}
 
         {load.status === 'error' ? (
           <p className="text-sm text-error-600 py-6 text-center">{load.message}</p>
+        ) : null}
+
+        {publish.status === 'done' ? (
+          <p className="text-xs text-success-600 pb-3 break-all">
+            Created on chain.{' '}
+            <a
+              className="text-brand-600 hover:underline"
+              href={explorerTxUrl(publish.signature, providers.solana.network)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {publish.signature}
+            </a>
+          </p>
         ) : null}
 
         {load.status === 'loaded' ? (
@@ -150,7 +210,7 @@ export function OnchainProjectPanel({ project }: { project: Project }) {
                 {load.state.pda}
               </a>
               <p className="text-xs text-ink-400">
-                Read directly from the RPC. This panel never signs or sends a transaction.
+                Read directly from the RPC. Only the Publish action ever signs anything.
               </p>
             </div>
           </div>

@@ -46,6 +46,20 @@ export function u64le(value: number | bigint): Uint8Array {
 }
 
 /** Single raw byte, matching a Rust `&[attempt]` seed where attempt: u8. */
+/**
+ * 2-byte little-endian encoding of a u16, matching Rust `u16::to_le_bytes()`.
+ * Used for instruction arguments (basis points), never for a PDA seed: no
+ * frozen seed tuple contains a u16.
+ */
+export function u16le(value: number): Uint8Array {
+  if (!Number.isInteger(value) || value < 0 || value > 65535) {
+    throw new RangeError('u16 out of range: ' + String(value));
+  }
+  const bytes = new Uint8Array(2);
+  new DataView(bytes.buffer).setUint16(0, value, true);
+  return bytes;
+}
+
 export function u8byte(value: number): Uint8Array {
   if (!Number.isInteger(value) || value < 0 || value > 255) {
     throw new RangeError('u8 seed out of range: ' + String(value));
