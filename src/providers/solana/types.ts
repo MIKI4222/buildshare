@@ -59,6 +59,20 @@ export interface AllocateOwnershipInput {
   founderWallet: string;
 }
 
+export interface CreateTaskOnchainInput {
+  projectId: string;
+  taskId: string;
+  onchainProjectId: number;
+  // Chosen by the caller before the call, never by the chain and never by the
+  // provider. See STOP-8: an occupied PDA is a refusal, not a retry.
+  onchainTaskId: number;
+  founderWallet: string;
+  rewardBps: number;
+  // Hex, computed in the domain layer. The provider converts, never computes.
+  acceptanceCriteriaHash: string;
+  repoRefHash: string;
+}
+
 export interface SolanaProvider {
   readonly mode: 'demo' | 'live';
   readonly network: SolanaNetwork;
@@ -74,6 +88,9 @@ export interface SolanaProvider {
   // Creates the Project account on chain. Only the live provider can do this;
   // the demo provider refuses instead of inventing a signature.
   initializeProject(input: InitializeProjectInput): Promise<SolanaResult>;
+  // Creates the Task account on chain. Only the live provider can do this;
+  // the demo provider refuses instead of inventing a signature.
+  createTask(input: CreateTaskOnchainInput): Promise<SolanaResult>;
 }
 
 // A signature is real only if it looks like a real base58 signature AND does

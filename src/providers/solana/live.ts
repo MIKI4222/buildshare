@@ -51,6 +51,34 @@ export const INITIALIZE_PROJECT_DISCRIMINATOR = [69, 126, 215, 37, 20, 60, 73, 2
 // initialize_project instruction data, 20 bytes:
 //   8 discriminator + u64 LE project_id + u16 LE founder_bps + u16 LE dev_pool_bps.
 // Exported so tests can assert the exact bytes instead of trusting the RPC.
+// create_task(task_id: u64, reward_bps: u16, acceptance_criteria_hash: [u8;32],
+// repo_ref_hash: [u8;32]). Argument order copied from the IDL, not guessed.
+export const CREATE_TASK_DISCRIMINATOR = [194, 80, 6, 180, 232, 127, 48, 171];
+
+// 8 discriminator + 8 id + 2 reward + 32 + 32 = 82 bytes.
+export function encodeCreateTaskData(
+  onchainTaskId: number,
+  rewardBps: number,
+  acceptanceCriteriaHash: Uint8Array,
+  repoRefHash: Uint8Array,
+): Uint8Array {
+  if (acceptanceCriteriaHash.length !== 32) {
+    throw new RangeError(
+      'acceptance_criteria_hash must be 32 bytes, got: ' + String(acceptanceCriteriaHash.length),
+    );
+  }
+  if (repoRefHash.length !== 32) {
+    throw new RangeError('repo_ref_hash must be 32 bytes, got: ' + String(repoRefHash.length));
+  }
+  const data = new Uint8Array(82);
+  data.set(Uint8Array.from(CREATE_TASK_DISCRIMINATOR), 0);
+  data.set(u64le(onchainTaskId), 8);
+  data.set(u16le(rewardBps), 16);
+  data.set(acceptanceCriteriaHash, 18);
+  data.set(repoRefHash, 50);
+  return data;
+}
+
 export function encodeInitializeProjectData(
   onchainProjectId: number,
   founderBps: number,
@@ -379,6 +407,133 @@ export class LiveSolanaProvider implements SolanaProvider {
 
     // buildOnchainResult refuses anything that is not a real base58 signature.
     return this.buildOnchainResult(projectPda.toBase58(), signature);
+  }
+
+  async createTask(
+    input: import('./types').CreateTaskOnchainInput,
+  ): Promise<SolanaResult> {
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'Creating a task on chain needs a browser wallet. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Install Phantom or Solflare, then retry.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const founderKey = new PublicKey(connected.toString());
+
+    if (founderKey.toBase58() !== input.founderWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'Only the founder recorded on this project may create tasks. Connected: ' +
+          founderKey.toBase58() + '. Expected: ' + input.founderWallet + '.',
+        { taskId: input.taskId },
+      );
+    }
+
+    const projectPda = await this.deriveProjectPda(input.onchainProjectId, input.founderWallet);
+    // STOP-8: an occupied Task PDA stops the flow. Never try another id.
+    await this.ensureTaskPdaAvailable(projectPda, input.onchainTaskId);
+    const taskPda = await this.deriveTaskPda(projectPda, input.onchainTaskId);
+
+    const hashModule = await import('../../domain/hash');
+    const data = encodeCreateTaskData(
+      input.onchainTaskId,
+      input.rewardBps,
+      hashModule.hashToBytes(input.acceptanceCriteriaHash),
+      hashModule.hashToBytes(input.repoRefHash),
+    );
+
+    const program = new PublicKey(this.programId);
+    const projectKey = new PublicKey(projectPda);
+    const taskKey = new PublicKey(taskPda);
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const tx = new web3.Transaction();
+    // Account order and flags copied from the IDL for create_task. founder is
+    // writable because it pays for the new account.
+    tx.add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: founderKey, isSigner: true, isWritable: true },
+          { pubkey: projectKey, isSigner: false, isWritable: true },
+          { pubkey: taskKey, isSigner: false, isWritable: true },
+          { pubkey: web3.SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data,
+      }),
+    );
+
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = founderKey;
+    tx.recentBlockhash = latest.blockhash;
+
+    const signed = await injected.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      'confirmed',
+    );
+
+    // A confirmed signature proves a transaction landed, not that it stored
+    // what we intended. Read the account back before anything is recorded.
+    const info = await connection.getAccountInfo(taskKey);
+    if (info === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The transaction confirmed but no account exists at ' + taskPda +
+          '. Nothing may be recorded locally. Signature: ' + signature + '.',
+        { taskId: input.taskId, signature },
+      );
+    }
+    const decodeModule = await import('../../lib/solana/decode');
+    const decoded = decodeModule.decodeTaskAccount(new Uint8Array(info.data));
+    const mismatch =
+      decoded.taskId !== String(input.onchainTaskId) ||
+      decoded.project !== projectPda ||
+      decoded.rewardBps !== input.rewardBps ||
+      decoded.acceptanceCriteriaHash !== input.acceptanceCriteriaHash.toLowerCase() ||
+      decoded.repoRefHash !== input.repoRefHash.toLowerCase();
+    if (mismatch) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The task account at ' + taskPda + ' does not hold what was sent. Nothing may be ' +
+          'recorded locally. Signature: ' + signature + '.',
+        {
+          taskId: input.taskId,
+          signature,
+          expectedTaskId: String(input.onchainTaskId),
+          actualTaskId: decoded.taskId,
+          expectedProject: projectPda,
+          actualProject: decoded.project,
+        },
+      );
+    }
+
+    // buildOnchainResult refuses anything that is not a real base58 signature.
+    return this.buildOnchainResult(taskPda, signature);
   }
 
   async allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult> {

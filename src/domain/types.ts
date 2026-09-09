@@ -78,8 +78,10 @@ export interface TaskCommitment {
 export interface Task {
   id: string;
   projectId: string;
-  // On-chain u64 task id. Null until the task exists on chain; on chain the id
-  // comes from project.task_count, which is monotonic and starts at 0.
+  // On-chain u64 task id. Null until the task exists on chain. task_id is
+  // chosen by the caller and included in the Task PDA seed. The chain
+  // increments task_count as the number of created tasks; it does not
+  // allocate task_id.
   onchainTaskId: number | null;
   externalKey: string; // e.g. BUILD-001
   title: string;

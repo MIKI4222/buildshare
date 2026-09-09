@@ -118,6 +118,7 @@ export interface AppContextValue {
   createProject: (input: CreateProjectInput) => Project;
   // Sends initialize_project and records the confirmed PDA. Live mode only.
   publishProjectOnchain: (projectId: string) => Promise<{ pda: string; signature: string }>;
+  publishTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
   createTask: (input: CreateTaskInput) => Task;
   claimTask: (taskId: string) => Promise<void>;
   approveContribution: (contributionId: string) => Promise<void>;
@@ -339,6 +340,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [db, providers],
   );
 
+  const publishTaskOnchainFn = useCallback(
+    async (taskId: string): Promise<{ pda: string; signature: string }> => {
+      const task = db.tasks.find((t) => t.id === taskId);
+      if (!task) throw new Error('Task not found: ' + taskId);
+      const project = db.projects.find((p) => p.id === task.projectId);
+      if (!project) throw new Error('Project not found: ' + task.projectId);
+      if (mode !== 'live') {
+        throw new Error('Switch to live mode to create this task on chain.');
+      }
+      if (project.solanaProjectPda === null) {
+        throw new Error('Create the project on chain first. A task cannot exist without it.');
+      }
+      if (project.founderWallet === DEMO_WALLET_ADDRESS) {
+        throw new Error('This project records the demo wallet as its founder and cannot be published.');
+      }
+      if (task.onchainTaskId !== null) {
+        throw new Error(
+          'This task is already on chain with id ' + String(task.onchainTaskId) + '.',
+        );
+      }
+
+      // STOP-8: the candidate is chosen here, once, and never incremented on
+      // failure. The provider refuses an occupied PDA rather than trying again.
+      const candidate = domain.nextOnchainTaskIdCandidate(db, project.id);
+      const commitmentModule = await import('../domain/commitment');
+      const repoRefModule = await import('../domain/repo-ref');
+      const acceptanceCriteriaHash = await commitmentModule.hashAcceptanceCriteria(
+        task.acceptanceCriteria,
+      );
+      const repoRefHash = await repoRefModule.hashRepoRef(
+        task.repositoryFullName,
+        task.baseBranch,
+      );
+
+      const result = await providers.solana.createTask({
+        projectId: project.id,
+        taskId: task.id,
+        onchainProjectId: project.onchainProjectId,
+        onchainTaskId: candidate,
+        founderWallet: project.founderWallet,
+        rewardBps: task.rewardBps,
+        acceptanceCriteriaHash,
+        repoRefHash,
+      });
+      if (result.kind !== 'onchain') {
+        throw new Error('The provider did not return an on-chain result. Nothing was recorded.');
+      }
+
+      // Only now, after the chain confirmed and the account was read back.
+      const next = domain.recordOnchainTask(db, task.id, { onchainTaskId: candidate });
+      setDb(next.db);
+      return { pda: result.pda, signature: result.signature };
+    },
+    [db, mode, providers],
+  );
+
   const createTaskFn = useCallback(
     (input: CreateTaskInput): Task => {
       // Pool validation lives in the domain, not in the form.
@@ -483,6 +540,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     getUserByWallet,
     createProject: createProjectFn,
     publishProjectOnchain: publishProjectOnchainFn,
+    publishTaskOnchain: publishTaskOnchainFn,
     createTask: createTaskFn,
     claimTask: claimTaskFn,
     approveContribution: approveContributionFn,
