@@ -61,7 +61,7 @@ output.
 | Program deployed to Devnet | DONE, slot 492442102 |
 | Full lifecycle executed on Devnet by script | DONE, 2 runs, 24 public signatures |
 | Web client reads live on-chain state | DONE |
-| Web client writes on-chain state | **NOT DONE — the buttons exist in the UI, the code compiles and is tested, but no transaction has ever been sent from a browser** |
+| Web client writes on-chain state | **PARTIAL — `initialize_project` and `create_task` have been signed in Phantom and finalised on Devnet, see DEVNET-PROOF-BROWSER.md. `allocate_ownership` is implemented and tested but has never been sent from a browser. Claiming a task exists in local state only.** |
 | Mainnet | NOT DONE |
 | Real users | NONE |
 | `expire_claim` proven | NO — needs a 7-day claim window to elapse; will not be faked |
@@ -362,6 +362,26 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
 
 ---
 
+### Blockers found during the first real browser run
+
+1. `env()` in `src/providers/solana/live.ts` used to read `import.meta.env` through an
+   alias. Vite substitutes the literal text `import.meta.env` at transform time, so the
+   alias produced `undefined` in the browser, `PROGRAM_ID` resolved to an empty string,
+   `liveAvailability()` reported the mode unavailable and the app silently fell back to
+   demo. Under Node the `process.env` branch hid the defect, so all tests stayed green.
+   Fixed in this commit. Never read `import.meta.env` through an intermediate variable.
+
+2. Claiming a task writes `commitment.contributorWallet` from the user record, which in
+   the seeded data is the demo constant `FounderWallet1111111111111111111111111111`, not
+   the connected wallet. On chain `claim_task` is signed by the contributor, so the
+   browser claim path must take the address from the connected wallet. This blocks the
+   next write path and must be resolved before `claim_task` is wired to the UI.
+
+3. `attempt` is owned by the chain: `create_task` leaves it at 0 and `claim_task`
+   increments it, while `submit_contribution` enforces `task.attempt == attempt`. The
+   client must read the value from the Task account and never compute it locally,
+   because it is one byte of the Contribution PDA seed.
+
 ## 10. Working rules that were learned the hard way
 
 - Always read the real file before patching it. Never patch from memory.
@@ -406,10 +426,15 @@ Explorer patterns:
 
 ---
 
+`DEVNET-PROOF-BROWSER.md` — the first two transactions ever signed from the browser UI,
+with both signatures, both account addresses, the decoded account fields and the
+local-versus-chain parity checks.
+
 ## 12. Commit history of this phase
 
 ```
-(this commit)  feat: create a task on chain from the task list button   <- HEAD
+(this commit)  docs: prove the browser write path on Devnet             <- HEAD
+3aca4a6        feat: create a task on chain from the task list button
 7bcc419  feat: create a task on chain from the browser
 d1b36b2  feat: decode Task accounts, and hand the project over in writing
 835302a  feat: create a project on chain from the browser

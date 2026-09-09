@@ -20,7 +20,7 @@ transaction signatures. The table below is the honest state of verification as o
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| Off-chain domain model, ownership accounting, state machines | **PASS** | `npm test` — 182 tests, 24 suites, 0 failures |
+| Off-chain domain model, ownership accounting, state machines | **PASS** | `npm test` — 244 tests, 35 suites, 0 failures |
 | TypeScript typecheck | **PASS** | `npx tsc --noEmit -p tsconfig.app.json` — exit 0 |
 | PDA seed parity between Rust and TypeScript | **PASS** | `tests/pda.test.ts` |
 | Lifecycle parity between Rust handlers and off-chain reducers | **PASS** | `tests/lifecycle-parity.test.ts` |
@@ -34,10 +34,10 @@ transaction signatures. The table below is the honest state of verification as o
 | Devnet lifecycle, ownership settled | **DONE** | 8 signatures in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md) |
 | Devnet rejection, retry and cancellation | **DONE** | 16 on-chain assertions in [`DEVNET-PROOF-BRANCHES.md`](./DEVNET-PROOF-BRANCHES.md) |
 | Web client reads live on-chain state | **DONE** | the project page decodes the Project account straight from Devnet |
-| Web client writes on-chain state | **NOT DONE** | browser signing is not implemented; the Live provider throws |
+| Web client writes on-chain state | **PARTIAL** | `initialize_project` and `create_task` signed in Phantom and finalised on Devnet, see [`DEVNET-PROOF-BROWSER.md`](DEVNET-PROOF-BROWSER.md); `allocate_ownership` is implemented and tested but has never been sent from a browser |
 | Mainnet | **NOT DONE** | out of scope for P1 |
 
-248 tests pass across three independent layers: 188 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
+304 tests pass across three independent layers: 244 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
 integration tests executed against a validator with the program actually deployed. The integration tests run on a
 local validator rather than Devnet, because each of them funds fresh participants by airdrop and the public faucet
 is rate limited. The Devnet evidence is the lifecycle run recorded in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md).
@@ -133,7 +133,7 @@ browser requires wallet signing, which is not implemented, and the Live provider
 
 ```bash
 npm install
-npm test              # 188 TypeScript tests, 24 suites
+npm test              # 244 TypeScript tests, 35 suites
 npm run test:rust     # 31 Rust unit tests, needs cargo
 npm run test:anchor   # 29 integration tests, needs a running validator
 npm run dev     # starts the app in demo mode

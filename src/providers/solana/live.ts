@@ -102,10 +102,12 @@ export interface LiveSolanaConfig {
 // VITE_ variables are ever read on the frontend: no secrets.
 export function env(key: string): string | undefined {
   try {
-    const meta = import.meta as unknown as { env?: Record<string, string | undefined> };
-    if (meta && meta.env && meta.env[key] !== undefined) return meta.env[key];
+    // Vite substitutes the literal import.meta.env at transform time, so
+    // reading it through an alias silently yields undefined in the browser.
+    const metaEnv = import.meta.env as unknown as Record<string, string | undefined> | undefined;
+    if (metaEnv && metaEnv[key] !== undefined) return metaEnv[key];
   } catch {
-    // import.meta is unavailable in some runtimes; fall through.
+    // import.meta.env is unavailable under plain Node; fall through.
   }
   const g = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
   const penv = g.process ? g.process.env : undefined;
