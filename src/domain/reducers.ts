@@ -1163,3 +1163,164 @@ export function rejectContribution(
   );
   return { db: next, contribution: updatedContribution };
 }
+
+// ------------------------------------------------ on-chain fact recording
+//
+// These two reducers write a fact the chain has ALREADY accepted. They are
+// deliberately dumb:
+//   - they never compute an id: the caller passes exactly what the confirmed
+//     transaction used;
+//   - they never touch status, accounting, ownership or the state machine;
+//   - recording the identical fact twice is a no-op, because a retried UI
+//     action must not fail;
+//   - recording a DIFFERENT value throws. A project cannot silently move to
+//     another PDA and a task cannot silently change its on-chain id.
+
+// Base58 address shape. The domain does not import the Solana provider layer,
+// so the pattern is local.
+const BASE58_ADDRESS_SHAPE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+export interface RecordOnchainProjectInput {
+  pda: string;
+  onchainProjectId: number;
+}
+
+export function recordOnchainProject(
+  db: AppDB,
+  projectId: string,
+  input: RecordOnchainProjectInput,
+  deps: Deps = defaultDeps,
+): { db: AppDB; project: Project } {
+  const project = requireProject(db, projectId);
+  assertDomain(
+    BASE58_ADDRESS_SHAPE.test(input.pda),
+    'INVARIANT_VIOLATION',
+    'Not a base58 Solana address: ' + input.pda,
+    { projectId, pda: input.pda },
+  );
+  assertDomain(
+    Number.isInteger(input.onchainProjectId) && input.onchainProjectId > 0,
+    'INVARIANT_VIOLATION',
+    'onchainProjectId must be a positive integer, got: ' + String(input.onchainProjectId),
+    { projectId, onchainProjectId: input.onchainProjectId },
+  );
+  // The reducer does not compute the id, but it refuses one that contradicts
+  // the founder-scoped counter this project was created with.
+  assertDomain(
+    input.onchainProjectId === project.onchainProjectId,
+    'INVARIANT_VIOLATION',
+    'Recorded onchainProjectId ' + String(input.onchainProjectId) +
+      ' contradicts the project counter ' + String(project.onchainProjectId) + '.',
+    { projectId, recorded: input.onchainProjectId, expected: project.onchainProjectId },
+  );
+
+  if (project.solanaProjectPda !== null) {
+    assertDomain(
+      project.solanaProjectPda === input.pda,
+      'INVARIANT_VIOLATION',
+      'This project is already recorded on chain at ' + project.solanaProjectPda +
+        ' and cannot be moved to ' + input.pda + '.',
+      { projectId, existing: project.solanaProjectPda, incoming: input.pda },
+    );
+    // Identical fact: idempotent, no second audit entry.
+    return { db, project };
+  }
+
+  const updated: Project = {
+    ...project,
+    solanaProjectPda: input.pda,
+    updatedAt: deps.now(),
+  };
+  let next = replaceProject(db, updated);
+  next = appendAudit(
+    next,
+    {
+      projectId,
+      userId: project.ownerUserId,
+      eventType: 'ONCHAIN_PROJECT_RECORDED',
+      entityType: 'project',
+      entityId: projectId,
+      metadata: { pda: input.pda, onchainProjectId: input.onchainProjectId },
+    },
+    deps,
+  );
+  return { db: next, project: updated };
+}
+
+// Candidate on-chain task id for the NEXT create_task in this project.
+//
+// max(recorded) + 1, deliberately NOT the local task count and NOT
+// project.task_count read from the chain: task_count is the number of
+// created tasks, it is not an id allocator. create_task accepts any u64
+// and only the `init` constraint refuses a repeat (create_task.rs:18,21).
+// Taking the maximum keeps ids monotonic, so a cancelled or never-recorded
+// task can never cause an id to be reused.
+//
+// This returns a CANDIDATE, not a fact. The live provider must derive the
+// Task PDA for it and refuse when that PDA is taken. Nothing may retry with
+// candidate + 1: an occupied PDA means local state is out of sync with the
+// chain, which is a decision for a human, not for the application.
+export function nextOnchainTaskIdCandidate(db: AppDB, projectId: string): number {
+  const project = requireProject(db, projectId);
+  const recorded = db.tasks
+    .filter((t) => t.projectId === project.id && t.onchainTaskId !== null)
+    .map((t) => t.onchainTaskId as number);
+  if (recorded.length === 0) {
+    return 0;
+  }
+  return Math.max.apply(null, recorded) + 1;
+}
+
+export interface RecordOnchainTaskInput {
+  onchainTaskId: number;
+}
+
+export function recordOnchainTask(
+  db: AppDB,
+  taskId: string,
+  input: RecordOnchainTaskInput,
+  deps: Deps = defaultDeps,
+): { db: AppDB; task: Task } {
+  const task = requireTask(db, taskId);
+  const project = requireProject(db, task.projectId);
+  // Zero is valid. task_id is chosen by the caller and included in the Task
+  // PDA seed. The chain increments task_count as the number of created tasks;
+  // it does not allocate task_id.
+  assertDomain(
+    Number.isInteger(input.onchainTaskId) && input.onchainTaskId >= 0,
+    'INVARIANT_VIOLATION',
+    'onchainTaskId must be a non-negative integer, got: ' + String(input.onchainTaskId),
+    { taskId, onchainTaskId: input.onchainTaskId },
+  );
+
+  if (task.onchainTaskId !== null) {
+    assertDomain(
+      task.onchainTaskId === input.onchainTaskId,
+      'INVARIANT_VIOLATION',
+      'This task is already recorded on chain with id ' + String(task.onchainTaskId) +
+        ' and cannot be changed to ' + String(input.onchainTaskId) + '.',
+      { taskId, existing: task.onchainTaskId, incoming: input.onchainTaskId },
+    );
+    return { db, task };
+  }
+
+  const updated: Task = {
+    ...task,
+    onchainTaskId: input.onchainTaskId,
+    updatedAt: deps.now(),
+  };
+  let next = replaceTask(db, updated);
+  next = appendAudit(
+    next,
+    {
+      projectId: project.id,
+      userId: project.ownerUserId,
+      eventType: 'ONCHAIN_TASK_RECORDED',
+      entityType: 'task',
+      entityId: taskId,
+      metadata: { onchainTaskId: input.onchainTaskId, externalKey: task.externalKey },
+    },
+    deps,
+  );
+  return { db: next, task: updated };
+}

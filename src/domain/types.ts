@@ -214,6 +214,8 @@ export interface Project {
 
 export type AuditEventType =
   | 'PROJECT_CREATED'
+  | 'ONCHAIN_PROJECT_RECORDED'
+  | 'ONCHAIN_TASK_RECORDED'
   | 'TASK_CREATED'
   | 'TASK_UPDATED'
   | 'TASK_CLAIMED'

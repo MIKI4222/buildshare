@@ -36,6 +36,17 @@ export class DemoSolanaProvider implements SolanaProvider {
     return { kind: 'demo', pda, network: this.network };
   }
 
+  // Demo mode never touches a cluster, so there is nothing to check and
+  // nothing to refuse. Returning quietly is honest here: no claim about the
+  // chain is made either way.
+  async ensureProjectPdaAvailable(): Promise<void> {
+    return;
+  }
+
+  async ensureTaskPdaAvailable(): Promise<void> {
+    return;
+  }
+
   async deriveProjectPda(onchainProjectId: number, founderWallet: string): Promise<string> {
     return demoPda(['project', founderWallet, String(onchainProjectId)]);
   }

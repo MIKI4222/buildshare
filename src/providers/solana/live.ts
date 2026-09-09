@@ -158,6 +158,79 @@ export class LiveSolanaProvider implements SolanaProvider {
     return pda.toBase58();
   }
 
+  // True when an account already exists at this address on the configured
+  // cluster. protected so that tests can prove the guard without a network
+  // round trip; production always goes through the RPC.
+  async deriveTaskPda(projectPda: string, onchainTaskId: number): Promise<string> {
+    const web3 = (await this.web3()) as {
+      PublicKey: new (value: string) => unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [key: string]: any;
+    };
+    const PublicKey = web3.PublicKey as unknown as {
+      new (value: string): { toBuffer(): Uint8Array; toBase58(): string };
+      findProgramAddressSync(
+        seeds: Uint8Array[],
+        programId: unknown,
+      ): [{ toBase58(): string }, number];
+    };
+    const project = new PublicKey(projectPda);
+    const program = new PublicKey(this.programId);
+    // Frozen seed tuple: b"task" + Project PDA + u64 little-endian task id,
+    // 4 + 32 + 8 = 44 bytes. Verified against create_task.rs (seeds on the
+    // init constraint) and against the IDL pda seeds for create_task.
+    const [pda] = PublicKey.findProgramAddressSync(
+      taskSeeds(project.toBuffer(), onchainTaskId),
+      program,
+    );
+    return pda.toBase58();
+  }
+
+  // Guard for create_task. An occupied Task PDA means the local database and
+  // the chain disagree about which ids are used. That is reported, never
+  // worked around: no candidate + 1, no scan for a free id, no transaction.
+  async ensureTaskPdaAvailable(projectPda: string, onchainTaskId: number): Promise<void> {
+    const pda = await this.deriveTaskPda(projectPda, onchainTaskId);
+    const exists = await this.accountExists(pda);
+    if (exists) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'onchain task PDA already exists for this task ID: ' + pda +
+          ' (onchainTaskId ' + String(onchainTaskId) + ', project ' + projectPda +
+          '). Local state is out of sync with the chain; no other id is tried.',
+        { pda, onchainTaskId, projectPda, network: this.network },
+      );
+    }
+  }
+
+  protected async accountExists(address: string): Promise<boolean> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const info = await connection.getAccountInfo(new web3.PublicKey(address));
+    return info !== null;
+  }
+
+  // Guard for initialize_project. If the PDA is taken we refuse and stop:
+  // no other id is tried, no transaction is built, the local counter is not
+  // touched. Silently choosing a different id would invent a project the
+  // user never asked for.
+  async ensureProjectPdaAvailable(
+    onchainProjectId: number,
+    founderWallet: string,
+  ): Promise<void> {
+    const pda = await this.deriveProjectPda(onchainProjectId, founderWallet);
+    const exists = await this.accountExists(pda);
+    if (exists) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'onchain project PDA already exists for this project ID: ' + pda +
+          ' (onchainProjectId ' + String(onchainProjectId) + ', founder ' + founderWallet + ').',
+        { pda, onchainProjectId, founderWallet, network: this.network },
+      );
+    }
+  }
+
   // Sends a real allocate_ownership transaction signed by the founder wallet.
   //
   // Guarantees, in order of checking:

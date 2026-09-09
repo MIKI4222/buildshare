@@ -161,8 +161,9 @@ export async function createDemoDB(): Promise<AppDB> {
 
   // Fixed demo on-chain task ids 0-3 (DESIGN FREEZE v1.2 §9) so that PDA
   // derivation in the demo is deterministic. createTask deliberately leaves
-  // onchainTaskId null; on chain the id comes from project.task_count, which
-  // starts at 0. The demo mirrors that ordering and changes nothing else.
+  // onchainTaskId null. task_id is chosen by the caller and included in the
+  // Task PDA seed. The chain increments task_count as the number of created
+  // tasks; it does not allocate task_id. The demo picks 0-3 explicitly.
   db = {
     ...db,
     tasks: db.tasks.map((task) => {

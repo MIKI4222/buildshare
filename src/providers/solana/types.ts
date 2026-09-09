@@ -54,6 +54,13 @@ export interface SolanaProvider {
   readonly network: SolanaNetwork;
   allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult>;
   deriveProjectPda(onchainProjectId: number, founderWallet: string): Promise<string>;
+  // Guard that must run before initialize_project. It refuses when the
+  // Project PDA is already taken and never tries another id. The demo
+  // provider performs no chain access at all.
+  ensureProjectPdaAvailable(onchainProjectId: number, founderWallet: string): Promise<void>;
+  // Same guard for create_task. An occupied Task PDA is a refusal, never a
+  // prompt to try another id.
+  ensureTaskPdaAvailable(projectPda: string, onchainTaskId: number): Promise<void>;
 }
 
 // A signature is real only if it looks like a real base58 signature AND does
