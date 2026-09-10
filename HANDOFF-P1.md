@@ -6,7 +6,7 @@ completely before touching anything.
 Repository: https://github.com/MIKI4222/buildshare
 Default and working branch: `feature/p0-hardening` (this is intentional; do not
 switch or rename it)
-State of this document: current as of commit `ac82da0`.
+State of this document: current as of commit `02b07bb`.
 
 ---
 
@@ -55,19 +55,33 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 253/253, 37 suites |
+| TypeScript tests (`npm test`) | PASS, 260/260, 37 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
 | Full lifecycle executed on Devnet by script | DONE, 2 runs, 24 public signatures |
 | Web client reads live on-chain state | DONE |
-| Web client writes on-chain state | **PARTIAL — `initialize_project` and `create_task` have been signed in Phantom and finalised on Devnet, see DEVNET-PROOF-BROWSER.md. `allocate_ownership` is implemented and tested but has never been sent from a browser. Claiming a task exists in local state only.** |
+| Web client writes on-chain state | **PARTIAL — `initialize_project`, `create_task` and `claim_task` have been signed in Phantom and finalised on Devnet, see [DEVNET-PROOF-BROWSER.md](DEVNET-PROOF-BROWSER.md). `submit_contribution`, `approve_contribution` and `allocate_ownership` are implemented and covered by byte-level tests, but have never been sent from a browser. Three of eleven instructions are proven from a browser.** |
 | Mainnet | NOT DONE |
 | Real users | NONE |
 | `expire_claim` proven | NO — needs a 7-day claim window to elapse; will not be faked |
 | `update_task` proven | Localnet only |
 
-Total test count across three layers: 313 = 253 TypeScript + 31 Rust + 29 Anchor.
+Total test count across three layers: 320 = 260 TypeScript + 31 Rust + 29 Anchor.
+
+Two defects were found and fixed after the browser claim proof. The allocation
+recipient was read from the user record instead of the task commitment, which
+the chain would have refused (`e83e979`). More seriously, nothing ever created
+the Contribution account: the live provider derived its PDA and passed it
+straight to `allocate_ownership`, so the live allocation path **could not
+succeed on Devnet at all** (`0bdbd1e`, `02b07bb`).
+
+Consequence for the operator: approving a contribution in live mode now asks
+for **two signatures in a row**. The first is `submit_contribution`, signed by
+the contributor, who also pays rent for the 188-byte Contribution account. The
+second carries `approve_contribution` and `allocate_ownership` together. If the
+second is refused, the contribution stays Submitted on chain and the retry path
+completes it; no second submission is needed.
 
 `npm test` does **not** glob `tests/anchor/`. Those run separately via
 `npm run test:anchor` and need a validator.
@@ -276,7 +290,7 @@ src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
 src/components/OnchainTaskButton.tsx    one Create on chain button per task row
-tests/                           37 TS suites, 253 tests
+tests/                           37 TS suites, 260 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -354,7 +368,7 @@ claim_task was signed in a browser on 10 Sep 2026: signature
 Task PDA HCzZ63bGUF583WVo1yr3pcvYL7kJGNDp831gWH7u2UYV, commitment hash on chain identical
 to local state, committed_bps 0 -> 500. See section 3 of DEVNET-PROOF-BROWSER.md.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
-6. DONE. README test counts are 253 TS / 313 total as of this commit.
+6. DONE. README test counts are 260 TS / 320 total as of commit `02b07bb`.
 7. Optional: `update_task` on Devnet; several independent contributor wallets;
    an external accounting review; code-splitting the 624 kB bundle; a dedicated
    RPC endpoint; silencing the ambiguous glob re-export warning in
@@ -441,7 +455,11 @@ local-versus-chain parity checks.
 ## 12. Commit history of this phase
 
 ```
-ac82da0        docs: prove the browser claim on Devnet  <- HEAD
+02b07bb        feat: submit the contribution on chain during approval  <- HEAD
+0bdbd1e        feat: send submit_contribution and approve_contribution on chain
+e83e979        fix: take the allocation recipient from the task commitment
+e7391d8        docs: refresh the handoff header and drop stale grant wording
+ac82da0        docs: prove the browser claim on Devnet
 c6c1ad6        feat: claim a task on chain from the task list button
 9611165        feat: wire the claim_task instruction in the live provider
 bbc757f        fix: take the contributor wallet from the session
