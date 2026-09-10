@@ -10,8 +10,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   ALLOCATE_OWNERSHIP_DISCRIMINATOR,
+  CLAIM_TASK_DISCRIMINATOR,
   CREATE_MEMBER_DISCRIMINATOR,
   INITIALIZE_PROJECT_DISCRIMINATOR,
+  encodeClaimTaskData,
   encodeInitializeProjectData,
 } from '../src/providers/solana/live';
 import { u16le, u64le } from '../src/lib/solana/pda';
@@ -76,5 +78,28 @@ describe('initialize_project discriminator and instruction data', () => {
   it('does not collide with the other discriminators', () => {
     assert.notDeepEqual(INITIALIZE_PROJECT_DISCRIMINATOR, ALLOCATE_OWNERSHIP_DISCRIMINATOR);
     assert.notDeepEqual(INITIALIZE_PROJECT_DISCRIMINATOR, CREATE_MEMBER_DISCRIMINATOR);
+  });
+});
+
+describe('claim_task wire format', () => {
+  it('the discriminator matches sha256 of its global name', () => {
+    assert.deepEqual(CLAIM_TASK_DISCRIMINATOR, anchorDiscriminator('claim_task'));
+  });
+
+  it('encodes exactly 8 + 32 bytes', () => {
+    const hash = new Uint8Array(32).fill(7);
+    const data = encodeClaimTaskData(hash);
+    assert.equal(data.length, 40);
+    assert.deepEqual(Array.from(data.subarray(0, 8)), CLAIM_TASK_DISCRIMINATOR);
+    assert.deepEqual(Array.from(data.subarray(8)), Array.from(hash));
+  });
+
+  it('refuses a hash that is not 32 bytes', () => {
+    assert.throws(() => encodeClaimTaskData(new Uint8Array(31)), RangeError);
+    assert.throws(() => encodeClaimTaskData(new Uint8Array(33)), RangeError);
+  });
+
+  it('does not share a discriminator with create_member', () => {
+    assert.notDeepEqual(CLAIM_TASK_DISCRIMINATOR, CREATE_MEMBER_DISCRIMINATOR);
   });
 });

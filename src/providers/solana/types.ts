@@ -73,6 +73,22 @@ export interface CreateTaskOnchainInput {
   repoRefHash: string;
 }
 
+export interface ClaimTaskOnchainInput {
+  projectId: string;
+  taskId: string;
+  onchainProjectId: number;
+  onchainTaskId: number;
+  founderWallet: string;
+  // The wallet that will sign claim_task. It belongs to the session, not to
+  // the user record: see STOP-14.
+  contributorWallet: string;
+  // The attempt the commitment hash was built for. The chain owns the counter,
+  // so the provider refuses to send when chain attempt + 1 differs. STOP-15.
+  attempt: number;
+  // Hex, computed in the domain layer. The provider converts, never computes.
+  commitmentHash: string;
+}
+
 export interface SolanaProvider {
   readonly mode: 'demo' | 'live';
   readonly network: SolanaNetwork;
@@ -91,6 +107,8 @@ export interface SolanaProvider {
   // Creates the Task account on chain. Only the live provider can do this;
   // the demo provider refuses instead of inventing a signature.
   createTask(input: CreateTaskOnchainInput): Promise<SolanaResult>;
+
+  claimTask(input: ClaimTaskOnchainInput): Promise<SolanaResult>;
 }
 
 // A signature is real only if it looks like a real base58 signature AND does

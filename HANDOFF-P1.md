@@ -55,7 +55,7 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 249/249, 36 suites |
+| TypeScript tests (`npm test`) | PASS, 253/253, 37 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
@@ -67,7 +67,7 @@ output.
 | `expire_claim` proven | NO — needs a 7-day claim window to elapse; will not be faked |
 | `update_task` proven | Localnet only |
 
-Total test count across three layers: 309 = 249 TypeScript + 31 Rust + 29 Anchor.
+Total test count across three layers: 313 = 253 TypeScript + 31 Rust + 29 Anchor.
 
 `npm test` does **not** glob `tests/anchor/`. Those run separately via
 `npm run test:anchor` and need a validator.
@@ -276,7 +276,7 @@ src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
 src/components/OnchainTaskButton.tsx    one Create on chain button per task row
-tests/                           36 TS suites, 249 tests
+tests/                           37 TS suites, 253 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -349,9 +349,10 @@ see DEVNET-PROOF-BROWSER.md and commit 715a7b8. Both were signed by Phantom
 53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG on Devnet and decoded byte for
 byte. The README row is PARTIAL, not DONE, because the remaining nine
 instructions have never been sent from a browser. Next in line is claim_task:
-the wallet source is fixed and tested, but the provider path is not wired.
+the provider path now exists and its wire format is tested, but nothing calls
+it yet, so no browser claim has ever been sent.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
-6. DONE. README test counts are 249 TS / 309 total as of this commit.
+6. DONE. README test counts are 253 TS / 313 total as of this commit.
 7. Optional: `update_task` on Devnet; several independent contributor wallets;
    an external accounting review; code-splitting the 624 kB bundle; a dedicated
    RPC endpoint; silencing the ambiguous glob re-export warning in
@@ -438,7 +439,8 @@ local-versus-chain parity checks.
 ## 12. Commit history of this phase
 
 ```
-(this commit)  fix: take the contributor wallet from the session          <- HEAD
+(this commit)  feat: wire the claim_task instruction in the live provider  <- HEAD
+bbc757f        fix: take the contributor wallet from the session
 715a7b8        docs: prove the browser write path on Devnet
 3aca4a6        feat: create a task on chain from the task list button
 7bcc419  feat: create a task on chain from the browser

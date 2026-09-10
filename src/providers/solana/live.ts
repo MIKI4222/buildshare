@@ -79,6 +79,20 @@ export function encodeCreateTaskData(
   return data;
 }
 
+export const CLAIM_TASK_DISCRIMINATOR = [49, 222, 219, 238, 155, 68, 221, 136];
+
+// 8 discriminator + 32 commitment hash = 40 bytes. claim_task takes no other
+// argument: the chain owns the attempt counter and derives the rest.
+export function encodeClaimTaskData(commitmentHash: Uint8Array): Uint8Array {
+  if (commitmentHash.length !== 32) {
+    throw new RangeError('commitment_hash must be 32 bytes, got: ' + String(commitmentHash.length));
+  }
+  const data = new Uint8Array(40);
+  data.set(Uint8Array.from(CLAIM_TASK_DISCRIMINATOR), 0);
+  data.set(commitmentHash, 8);
+  return data;
+}
+
 export function encodeInitializeProjectData(
   onchainProjectId: number,
   founderBps: number,
@@ -409,6 +423,159 @@ export class LiveSolanaProvider implements SolanaProvider {
 
     // buildOnchainResult refuses anything that is not a real base58 signature.
     return this.buildOnchainResult(projectPda.toBase58(), signature);
+  }
+
+  async claimTask(
+    input: import('./types').ClaimTaskOnchainInput,
+  ): Promise<SolanaResult> {
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'Claiming a task on chain needs a browser wallet. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Install Phantom or Solflare, then retry.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const contributorKey = new PublicKey(connected.toString());
+
+    // The commitment hash was built around one specific wallet. Signing with a
+    // different one would store a hash nobody can reproduce.
+    if (contributorKey.toBase58() !== input.contributorWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'This claim was prepared for ' + input.contributorWallet + ' but the connected wallet is ' +
+          contributorKey.toBase58() + '. Nothing was sent.',
+        { taskId: input.taskId },
+      );
+    }
+
+    const projectPda = await this.deriveProjectPda(input.onchainProjectId, input.founderWallet);
+    const taskPda = await this.deriveTaskPda(projectPda, input.onchainTaskId);
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const taskKey = new PublicKey(taskPda);
+
+    // Read before writing. An OPEN task and a matching attempt are conditions
+    // for sending at all, never something to fix silently.
+    const before = await connection.getAccountInfo(taskKey);
+    if (before === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'No task account exists at ' + taskPda + ', so it cannot be claimed. Nothing was sent.',
+        { taskId: input.taskId },
+      );
+    }
+    const decodeModule = await import('../../lib/solana/decode');
+    const current = decodeModule.decodeTaskAccount(new Uint8Array(before.data));
+    if (current.status !== 'OPEN') {
+      throw domainError(
+        'NOT_CLAIMABLE',
+        'The task at ' + taskPda + ' is ' + current.status + ' on chain, not OPEN. Nothing was sent.',
+        { taskId: input.taskId, onchainStatus: current.status },
+      );
+    }
+    // attempt is one byte of the Contribution PDA seed and is owned by the
+    // chain: claim_task increments it. The commitment hash must have been built
+    // for exactly the value this call will produce.
+    if (current.attempt + 1 !== input.attempt) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'On chain attempt is ' + String(current.attempt) + ', so this claim would produce ' +
+          String(current.attempt + 1) + ', but the commitment hash was built for attempt ' +
+          String(input.attempt) + '. Nothing was sent.',
+        { taskId: input.taskId, chainAttempt: current.attempt, localAttempt: input.attempt },
+      );
+    }
+
+    const hashModule = await import('../../domain/hash');
+    const data = encodeClaimTaskData(hashModule.hashToBytes(input.commitmentHash));
+
+    const program = new PublicKey(this.programId);
+    const projectKey = new PublicKey(projectPda);
+    const tx = new web3.Transaction();
+    // Account order and flags copied from the IDL for claim_task. contributor
+    // is not writable there; it becomes writable only as the fee payer.
+    tx.add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: contributorKey, isSigner: true, isWritable: false },
+          { pubkey: projectKey, isSigner: false, isWritable: true },
+          { pubkey: taskKey, isSigner: false, isWritable: true },
+        ],
+        data,
+      }),
+    );
+
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = contributorKey;
+    tx.recentBlockhash = latest.blockhash;
+
+    const signed = await injected.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      'confirmed',
+    );
+
+    // A confirmed signature proves a transaction landed, not that it stored
+    // what we intended. Read the account back before anything is recorded.
+    const after = await connection.getAccountInfo(taskKey);
+    if (after === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The transaction confirmed but no account exists at ' + taskPda +
+          '. Nothing may be recorded locally. Signature: ' + signature + '.',
+        { taskId: input.taskId, signature },
+      );
+    }
+    const stored = decodeModule.decodeTaskAccount(new Uint8Array(after.data));
+    const mismatch =
+      stored.status !== 'CLAIMED' ||
+      stored.contributor !== contributorKey.toBase58() ||
+      stored.attempt !== current.attempt + 1 ||
+      stored.commitmentHash !== input.commitmentHash.toLowerCase();
+    if (mismatch) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The task account at ' + taskPda + ' does not hold what was sent. Nothing may be ' +
+          'recorded locally. Signature: ' + signature + '.',
+        {
+          taskId: input.taskId,
+          signature,
+          expectedStatus: 'CLAIMED',
+          actualStatus: stored.status,
+          expectedContributor: contributorKey.toBase58(),
+          actualContributor: stored.contributor,
+          expectedAttempt: current.attempt + 1,
+          actualAttempt: stored.attempt,
+        },
+      );
+    }
+
+    // buildOnchainResult refuses anything that is not a real base58 signature.
+    return this.buildOnchainResult(taskPda, signature);
   }
 
   async createTask(
