@@ -503,13 +503,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const contribution = approved.contribution;
       const task = domain.requireTask(next, contribution.taskId);
       const project = domain.requireProject(next, contribution.projectId);
-      const contributor = domain.requireUser(next, contribution.userId);
+      // The allocation recipient comes from the task commitment, not from the
+      // user record. The chain sets task.contributor from the claim signer and
+      // then enforces contribution.contributor == task.contributor and
+      // member.wallet == contribution.contributor, so any other source can only
+      // produce a refused transaction. Refuse here instead, before a signature.
+      const commitment = task.commitment;
+      if (!commitment) {
+        throw new Error(
+          'This task carries no commitment, so there is no contributor to allocate ownership to.',
+        );
+      }
 
       const allocationInput = {
         projectId: project.id,
         taskId: task.id,
         contributionId: contribution.id,
-        contributorWallet: contributor.walletAddress,
+        contributorWallet: commitment.contributorWallet,
         rewardBps: contribution.rewardBps,
         evidenceHash: contribution.evidenceHash || '',
         attempt: contribution.attempt,
