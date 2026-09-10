@@ -93,6 +93,28 @@ export function encodeClaimTaskData(commitmentHash: Uint8Array): Uint8Array {
   return data;
 }
 
+export const SUBMIT_CONTRIBUTION_DISCRIMINATOR = [123, 132, 230, 253, 141, 22, 214, 91];
+export const APPROVE_CONTRIBUTION_DISCRIMINATOR = [202, 161, 21, 234, 88, 85, 197, 7];
+
+// 8 discriminator + 1 attempt + 32 evidence hash = 41 bytes. Read from the
+// IDL, never from memory: args are attempt u8 then evidence_hash [u8; 32].
+export function encodeSubmitContributionData(
+  attempt: number,
+  evidenceHash: Uint8Array,
+): Uint8Array {
+  if (evidenceHash.length !== 32) {
+    throw new RangeError('evidence_hash must be 32 bytes, got: ' + String(evidenceHash.length));
+  }
+  if (!Number.isInteger(attempt) || attempt < 0 || attempt > 255) {
+    throw new RangeError('attempt must fit in one byte, got: ' + String(attempt));
+  }
+  const data = new Uint8Array(41);
+  data.set(Uint8Array.from(SUBMIT_CONTRIBUTION_DISCRIMINATOR), 0);
+  data[8] = attempt;
+  data.set(evidenceHash, 9);
+  return data;
+}
+
 export function encodeInitializeProjectData(
   onchainProjectId: number,
   founderBps: number,
@@ -705,6 +727,155 @@ export class LiveSolanaProvider implements SolanaProvider {
     return this.buildOnchainResult(taskPda, signature);
   }
 
+  // STOP-18. Creates the Contribution account on chain. The contributor
+  // signs and pays rent. Evidence v1 only exists once the founder approves,
+  // so this is sent at approval time, just before approve + allocate.
+  async submitContribution(
+    input: import('./types').SubmitContributionOnchainInput,
+  ): Promise<SolanaResult> {
+    if (input.onchainTaskId === null) {
+      throw domainError(
+        'TASK_NOT_FOUND',
+        'This task does not exist on chain, so no contribution can be submitted. Nothing was sent.',
+        { taskId: input.taskId, contributionId: input.contributionId },
+      );
+    }
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'On-chain submission needs a browser wallet. Nothing was sent.',
+        { contributionId: input.contributionId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Install Phantom or Solflare, then retry.',
+        { contributionId: input.contributionId, network: this.network },
+      );
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const contributorKey = new PublicKey(connected.toString());
+    if (contributorKey.toBase58() !== input.contributorWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'This contribution belongs to ' + input.contributorWallet + ' but the connected wallet is ' +
+          contributorKey.toBase58() + '. Nothing was sent.',
+        { contributionId: input.contributionId },
+      );
+    }
+    const projectPda = await this.deriveProjectPda(input.onchainProjectId, input.founderWallet);
+    const taskPda = await this.deriveTaskPda(projectPda, input.onchainTaskId);
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const taskKey = new PublicKey(taskPda);
+    // Read before writing. The chain must already hold a CLAIMED task on the
+    // same attempt, otherwise this is a disagreement to report, not to fix.
+    const before = await connection.getAccountInfo(taskKey);
+    if (before === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'No task account exists at ' + taskPda + '. Nothing was sent.',
+        { taskId: input.taskId },
+      );
+    }
+    const decodeModule = await import('../../lib/solana/decode');
+    const current = decodeModule.decodeTaskAccount(new Uint8Array(before.data));
+    if (current.status !== 'CLAIMED') {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The task at ' + taskPda + ' is ' + current.status + ' on chain, not CLAIMED. Nothing was sent.',
+        { taskId: input.taskId, onchainStatus: current.status },
+      );
+    }
+    if (current.attempt !== input.attempt) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'On chain attempt is ' + String(current.attempt) + ' but this contribution was built for attempt ' +
+          String(input.attempt) + '. Nothing was sent.',
+        { taskId: input.taskId, chainAttempt: current.attempt, localAttempt: input.attempt },
+      );
+    }
+    const program = new PublicKey(this.programId);
+    const projectKey = new PublicKey(projectPda);
+    const [contributionPda] = PublicKey.findProgramAddressSync(
+      contributionSeeds(taskKey.toBuffer(), contributorKey.toBuffer(), input.attempt),
+      program,
+    );
+    const taken = await connection.getAccountInfo(contributionPda);
+    if (taken !== null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'A Contribution account already exists at ' + contributionPda.toBase58() +
+          '. It is never overwritten and no other address is tried. Nothing was sent.',
+        { contributionId: input.contributionId },
+      );
+    }
+    const hashModule = await import('../../domain/hash');
+    const evidenceBytes = hashModule.hashToBytes(input.evidenceHash);
+    const data = encodeSubmitContributionData(input.attempt, evidenceBytes);
+    const tx = new web3.Transaction();
+    // Account order and flags copied from the IDL for submit_contribution.
+    tx.add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: contributorKey, isSigner: true, isWritable: true },
+          { pubkey: projectKey, isSigner: false, isWritable: false },
+          { pubkey: taskKey, isSigner: false, isWritable: true },
+          { pubkey: contributionPda, isSigner: false, isWritable: true },
+          { pubkey: web3.SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: data,
+      }),
+    );
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = contributorKey;
+    tx.recentBlockhash = latest.blockhash;
+    const signed = await injected.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      'confirmed',
+    );
+    // Read back. Frozen Contribution layout: evidence_hash is bytes 106..138.
+    const after = await connection.getAccountInfo(contributionPda);
+    if (after === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The transaction confirmed but no Contribution account was found. Signature: ' + signature + '.',
+        { contributionId: input.contributionId },
+      );
+    }
+    const storedEvidence = new Uint8Array(after.data).slice(106, 138);
+    let same = storedEvidence.length === 32;
+    for (let k = 0; k < 32 && same; k += 1) {
+      if (storedEvidence[k] !== evidenceBytes[k]) same = false;
+    }
+    if (!same) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The chain stored an evidence hash that differs from the one sent. Signature: ' + signature + '.',
+        { contributionId: input.contributionId, contribution: contributionPda.toBase58() },
+      );
+    }
+    // buildOnchainResult refuses anything that is not a real base58 signature.
+    return this.buildOnchainResult(contributionPda.toBase58(), signature);
+  }
+
   async allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult> {
     if (input.onchainTaskId === null) {
       throw domainError(
@@ -785,6 +956,48 @@ export class LiveSolanaProvider implements SolanaProvider {
         }),
       );
     }
+
+    // STOP-18. allocate_ownership needs an APPROVED Contribution, and the
+    // account itself is only created by submit_contribution. Read the chain
+    // and add approve_contribution only when the chain says Submitted:
+    // approving an already approved contribution would fail the whole
+    // transaction, allocation included.
+    const contributionInfo = await connection.getAccountInfo(contributionPda);
+    if (contributionInfo === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'No Contribution account exists at ' + contributionPda.toBase58() +
+          '. Submit the contribution on chain first. Nothing was sent.',
+        { contributionId: input.contributionId },
+      );
+    }
+    // Frozen Contribution layout: status is one byte at offset 73.
+    // 0 Submitted, 1 Approved, 2 Rejected, 3 Settled.
+    const onchainStatus = new Uint8Array(contributionInfo.data)[73];
+    if (onchainStatus === 2 || onchainStatus === 3) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The chain reports this contribution as rejected or already settled. Nothing was sent.',
+        { contributionId: input.contributionId, onchainStatus: onchainStatus },
+      );
+    }
+    if (onchainStatus === 0) {
+      // Account order and flags copied from the IDL for approve_contribution.
+      // It takes no arguments: the discriminator is the whole payload.
+      tx.add(
+        new web3.TransactionInstruction({
+          programId: program,
+          keys: [
+            { pubkey: founderKey, isSigner: true, isWritable: true },
+            { pubkey: projectPda, isSigner: false, isWritable: false },
+            { pubkey: taskPda, isSigner: false, isWritable: true },
+            { pubkey: contributionPda, isSigner: false, isWritable: true },
+          ],
+          data: new Uint8Array(APPROVE_CONTRIBUTION_DISCRIMINATOR),
+        }),
+      );
+    }
+
 
     // founder is isWritable here because it pays the fee. Anchor enforces mut
     // only where it declares it, so a writable signer is accepted.

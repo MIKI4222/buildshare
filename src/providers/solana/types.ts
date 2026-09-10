@@ -89,6 +89,22 @@ export interface ClaimTaskOnchainInput {
   commitmentHash: string;
 }
 
+export interface SubmitContributionOnchainInput {
+  projectId: string;
+  taskId: string;
+  contributionId: string;
+  onchainProjectId: number;
+  onchainTaskId: number | null;
+  founderWallet: string;
+  // Signs submit_contribution and pays rent for the Contribution account.
+  // The chain requires this wallet to equal task.contributor.
+  contributorWallet: string;
+  attempt: number;
+  // Hex Evidence v1, computed in the domain layer at approval time. The
+  // provider converts, never computes. STOP-18 variant B.
+  evidenceHash: string;
+}
+
 export interface SolanaProvider {
   readonly mode: 'demo' | 'live';
   readonly network: SolanaNetwork;
@@ -109,6 +125,9 @@ export interface SolanaProvider {
   createTask(input: CreateTaskOnchainInput): Promise<SolanaResult>;
 
   claimTask(input: ClaimTaskOnchainInput): Promise<SolanaResult>;
+  // Creates the Contribution account on chain with a non-zero evidence hash.
+  // The contributor signs and pays rent. STOP-18.
+  submitContribution(input: SubmitContributionOnchainInput): Promise<SolanaResult>;
 }
 
 // A signature is real only if it looks like a real base58 signature AND does

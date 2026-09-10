@@ -72,6 +72,16 @@ export class DemoSolanaProvider implements SolanaProvider {
     );
   }
 
+  async submitContribution(
+    input: import('./types').SubmitContributionOnchainInput,
+  ): Promise<never> {
+    throw domainError(
+      'LIVE_MODE_UNAVAILABLE',
+      'Demo mode cannot submit a contribution on chain. Switch to live mode and connect a wallet.',
+      { taskId: input.taskId, projectId: input.projectId },
+    );
+  }
+
   async ensureProjectPdaAvailable(): Promise<void> {
     return;
   }
