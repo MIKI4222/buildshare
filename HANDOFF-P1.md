@@ -55,7 +55,7 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 244/244, 35 suites |
+| TypeScript tests (`npm test`) | PASS, 249/249, 36 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
@@ -67,7 +67,7 @@ output.
 | `expire_claim` proven | NO — needs a 7-day claim window to elapse; will not be faked |
 | `update_task` proven | Localnet only |
 
-Total test count across three layers: 304 = 244 TypeScript + 31 Rust + 29 Anchor.
+Total test count across three layers: 309 = 249 TypeScript + 31 Rust + 29 Anchor.
 
 `npm test` does **not** glob `tests/anchor/`. Those run separately via
 `npm run test:anchor` and need a validator.
@@ -276,7 +276,7 @@ src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
 src/components/OnchainTaskButton.tsx    one Create on chain button per task row
-tests/                           35 TS suites, 244 tests
+tests/                           36 TS suites, 249 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -344,15 +344,14 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
 3. Browser `claim_task`, `submit_contribution`, `approve_contribution`.
 4. Extend `tests/discriminator.test.ts` to every instruction used from the
    browser.
-5. **Prove the write path for real.** Run `npm run dev`, switch to Live, connect
-   a fresh Phantom devnet wallet, create a project through the form so that
-   `founderWallet` equals the Phantom address, fund that address from the CLI
-   wallet, press Publish, and then the per-row Create on chain button on a
-   task. Capture every signature and Explorer URL.
-   Only then flip the README row `Web client writes on-chain state` and add
-   `DEVNET-PROOF-BROWSER.md`. Do **not** import `~/.config/solana/id.json` into
-   a browser wallet.
-6. Update the README test counts to 244 TS / 304 total.
+5. PARTIAL. The write path is proven for initialize_project and create_task:
+see DEVNET-PROOF-BROWSER.md and commit 715a7b8. Both were signed by Phantom
+53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG on Devnet and decoded byte for
+byte. The README row is PARTIAL, not DONE, because the remaining nine
+instructions have never been sent from a browser. Next in line is claim_task:
+the wallet source is fixed and tested, but the provider path is not wired.
+Do NOT import ~/.config/solana/id.json into a browser wallet.
+6. DONE. README test counts are 249 TS / 309 total as of this commit.
 7. Optional: `update_task` on Devnet; several independent contributor wallets;
    an external accounting review; code-splitting the 624 kB bundle; a dedicated
    RPC endpoint; silencing the ambiguous glob re-export warning in
@@ -369,13 +368,19 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
    alias produced `undefined` in the browser, `PROGRAM_ID` resolved to an empty string,
    `liveAvailability()` reported the mode unavailable and the app silently fell back to
    demo. Under Node the `process.env` branch hid the defect, so all tests stayed green.
-   Fixed in this commit. Never read `import.meta.env` through an intermediate variable.
+   Fixed in 715a7b8. Never read `import.meta.env` through an intermediate variable.
 
-2. Claiming a task writes `commitment.contributorWallet` from the user record, which in
-   the seeded data is the demo constant `FounderWallet1111111111111111111111111111`, not
-   the connected wallet. On chain `claim_task` is signed by the contributor, so the
-   browser claim path must take the address from the connected wallet. This blocks the
-   next write path and must be resolved before `claim_task` is wired to the UI.
+2. RESOLVED. Claiming a task used to write `commitment.contributorWallet` from the
+user record, which in the seeded data is the demo constant
+`FounderWallet1111111111111111111111111111`, not the connected wallet. On chain
+`claim_task` is signed by the contributor, so the commitment hash would have been
+built around an address that owns no key. `claimTask` now takes an optional
+`contributorWallet` from the caller and falls back to the user record only when none
+is given; `claimTaskFn` passes the connected wallet and refuses to claim in Live mode
+without one. The user record is never rewritten: the wallet belongs to the session.
+Covered by `tests/claim-wallet.test.ts`, including the check that two different
+wallets produce two different commitment hashes. The browser `claim_task` path itself
+is still not wired, so this is NOT yet proven on Devnet.
 
 3. `attempt` is owned by the chain: `create_task` leaves it at 0 and `claim_task`
    increments it, while `submit_contribution` enforces `task.attempt == attempt`. The
@@ -433,7 +438,8 @@ local-versus-chain parity checks.
 ## 12. Commit history of this phase
 
 ```
-(this commit)  docs: prove the browser write path on Devnet             <- HEAD
+(this commit)  fix: take the contributor wallet from the session          <- HEAD
+715a7b8        docs: prove the browser write path on Devnet
 3aca4a6        feat: create a task on chain from the task list button
 7bcc419  feat: create a task on chain from the browser
 d1b36b2  feat: decode Task accounts, and hand the project over in writing

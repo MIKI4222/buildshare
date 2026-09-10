@@ -477,7 +477,14 @@ export function cancelTask(
 
 export async function claimTask(
   db: AppDB,
-  input: { taskId: string; userId: string; claimWindowDays?: number },
+  input: {
+    taskId: string;
+    userId: string;
+    claimWindowDays?: number;
+    // The wallet that will sign claim_task on chain. It belongs to the
+    // session, not to the user record, so the caller supplies it.
+    contributorWallet?: string;
+  },
   deps: Deps = defaultDeps,
 ): Promise<{ db: AppDB; task: Task }> {
   const task = requireTask(db, input.taskId);
@@ -492,6 +499,14 @@ export async function claimTask(
   );
   assertTaskTransition(task.id, task.status, 'CLAIMED');
 
+  const contributorWallet = (input.contributorWallet || user.walletAddress).trim();
+  assertDomain(
+    contributorWallet.length > 0,
+    'NOT_CLAIMABLE',
+    'Task ' + task.externalKey + ' cannot be claimed without a contributor wallet.',
+    { taskId: task.id },
+  );
+
   const at = deps.now();
   const attempt = task.attempt + 1;
   const hashes = await computeCommitmentHashes({
@@ -502,14 +517,14 @@ export async function claimTask(
     rewardBps: task.rewardBps,
     repositoryFullName: task.repositoryFullName,
     baseBranch: task.baseBranch,
-    contributorWallet: user.walletAddress,
+    contributorWallet,
     attempt,
   });
 
   const commitment: TaskCommitment = {
     attempt,
     contributorUserId: user.id,
-    contributorWallet: user.walletAddress,
+    contributorWallet,
     claimedAt: at,
     claimExpiresAt: claimExpiryFrom(at, input.claimWindowDays || DEFAULT_CLAIM_WINDOW_DAYS),
     rewardBps: task.rewardBps,

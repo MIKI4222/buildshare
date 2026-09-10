@@ -418,10 +418,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const claimTaskFn = useCallback(
     async (taskId: string) => {
-      const result = await domain.claimTask(db, { taskId, userId: CURRENT_USER_ID });
+      if (mode === 'live' && !walletAddress) {
+        throw new Error('Connect a wallet before claiming a task in Live mode.');
+      }
+      const result = await domain.claimTask(db, {
+        taskId,
+        userId: CURRENT_USER_ID,
+        contributorWallet: walletAddress || undefined,
+      });
       setDb(result.db);
     },
-    [db],
+    [db, mode, walletAddress],
   );
 
   const approveContributionFn = useCallback(
