@@ -542,6 +542,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // 2a-bis. Live only. allocate_ownership needs an APPROVED Contribution
+      // account, and only submit_contribution creates it. Evidence v1 exists
+      // just now, because it includes the approver and the approval time, so
+      // this is the earliest possible moment to put it on chain. STOP-18.
+      if (!contribution.evidenceHash) {
+        throw new Error(
+          'Approval produced no evidence hash, so nothing can be submitted on chain.',
+        );
+      }
+      // Its own transaction, signed by the contributor, who pays the rent.
+      // A failure here stops the flow: allocating into a Contribution account
+      // that does not exist is exactly the defect this replaces.
+      await providers.solana.submitContribution({
+        projectId: project.id,
+        taskId: task.id,
+        contributionId: contribution.id,
+        onchainProjectId: project.onchainProjectId,
+        onchainTaskId: task.onchainTaskId,
+        founderWallet: project.founderWallet,
+        contributorWallet: commitment.contributorWallet,
+        attempt: contribution.attempt,
+        evidenceHash: contribution.evidenceHash,
+      });
+
+
       // 2b. Live: PENDING_ONCHAIN -> real transaction -> ONCHAIN, or
       // ONCHAIN_FAILED. No fake signature is ever produced.
       next = domain.beginAllocation(next, { contributionId }).db;
