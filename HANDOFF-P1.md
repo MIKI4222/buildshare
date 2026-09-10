@@ -6,7 +6,7 @@ completely before touching anything.
 Repository: https://github.com/MIKI4222/buildshare
 Default and working branch: `feature/p0-hardening` (this is intentional; do not
 switch or rename it)
-State of this document: current as of commit `835302a`.
+State of this document: current as of commit `ac82da0`.
 
 ---
 
@@ -441,7 +441,7 @@ local-versus-chain parity checks.
 ## 12. Commit history of this phase
 
 ```
-(this commit)  docs: prove the browser claim on Devnet  <- HEAD
+ac82da0        docs: prove the browser claim on Devnet  <- HEAD
 c6c1ad6        feat: claim a task on chain from the task list button
 9611165        feat: wire the claim_task instruction in the live provider
 bbc757f        fix: take the contributor wallet from the session
@@ -466,7 +466,3 @@ b5efb49  P0 baseline
 ```
 
 A dropped pre-amend commit `6a2d407` exists in reflog only; ignore it.
-
-The former Superteam grant (200 USDG) was **cancelled**. Ignore any grant,
-KPI or Crowdedness wording still present in older documents. The honesty rules
-it introduced remain in force because they are correct regardless.
