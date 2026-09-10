@@ -119,6 +119,9 @@ export interface AppContextValue {
   // Sends initialize_project and records the confirmed PDA. Live mode only.
   publishProjectOnchain: (projectId: string) => Promise<{ pda: string; signature: string }>;
   publishTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
+  // STOP-16: sends claim_task for a task already claimed locally and already
+  // created on chain. Live mode only.
+  claimTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
   createTask: (input: CreateTaskInput) => Task;
   claimTask: (taskId: string) => Promise<void>;
   approveContribution: (contributionId: string) => Promise<void>;
@@ -416,6 +419,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [db],
   );
 
+  // STOP-16: the on-chain half of a claim. Nothing is recorded, because the
+  // domain has no field for a claim signature yet. The signature goes back to
+  // the caller and the chain stays the source of truth.
+  const claimTaskOnchainFn = useCallback(
+    async (taskId: string): Promise<{ pda: string; signature: string }> => {
+      const task = db.tasks.find((t) => t.id === taskId);
+      if (!task) throw new Error('Task not found: ' + taskId);
+      const project = db.projects.find((p) => p.id === task.projectId);
+      if (!project) throw new Error('Project not found: ' + task.projectId);
+      if (mode !== 'live') {
+        throw new Error('Switch to live mode to claim this task on chain.');
+      }
+      if (!walletAddress) {
+        throw new Error('Connect a wallet before claiming a task on chain.');
+      }
+      if (project.solanaProjectPda === null) {
+        throw new Error('This project does not exist on chain yet.');
+      }
+      if (task.onchainTaskId === null) {
+        throw new Error('Create this task on chain before claiming it.');
+      }
+      if (task.status !== 'CLAIMED') {
+        throw new Error('Claim the task locally first. Status is ' + task.status + '.');
+      }
+      const commitment = task.commitment;
+      if (!commitment) {
+        throw new Error('This task carries no commitment, so there is nothing to send.');
+      }
+      // The hash was built for exactly one wallet. Signing with another would
+      // publish a commitment nobody can reproduce, so this refuses.
+      if (commitment.contributorWallet !== walletAddress) {
+        throw new Error(
+          'The commitment was built for ' +
+            commitment.contributorWallet +
+            ' but the connected wallet is ' +
+            walletAddress +
+            '. Reopen the task and claim it again with this wallet.',
+        );
+      }
+
+      const result = await providers.solana.claimTask({
+        projectId: project.id,
+        taskId: task.id,
+        onchainProjectId: project.onchainProjectId,
+        onchainTaskId: task.onchainTaskId,
+        founderWallet: project.founderWallet,
+        contributorWallet: commitment.contributorWallet,
+        attempt: commitment.attempt,
+        commitmentHash: commitment.commitmentHash,
+      });
+      if (result.kind !== 'onchain') {
+        throw new Error('The provider did not return an on-chain result. Nothing changed.');
+      }
+      return { pda: result.pda, signature: result.signature };
+    },
+    [db, mode, providers, walletAddress],
+  );
+
   const claimTaskFn = useCallback(
     async (taskId: string) => {
       if (mode === 'live' && !walletAddress) {
@@ -548,6 +609,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     createProject: createProjectFn,
     publishProjectOnchain: publishProjectOnchainFn,
     publishTaskOnchain: publishTaskOnchainFn,
+    claimTaskOnchain: claimTaskOnchainFn,
     createTask: createTaskFn,
     claimTask: claimTaskFn,
     approveContribution: approveContributionFn,

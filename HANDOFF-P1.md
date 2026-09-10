@@ -341,7 +341,7 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
 2. DONE in `7bcc419` (write path) and the commit that follows it (row button).
    Browser `create_task`: candidate selection, PDA guard, encoder,
    post-confirmation verification, `recordOnchainTask`.
-3. Browser `claim_task`, `submit_contribution`, `approve_contribution`.
+3. Sign a browser `claim_task` on Devnet. The button exists as of this commit; the signature does not. Then `submit_contribution` and `approve_contribution`.
 4. Extend `tests/discriminator.test.ts` to every instruction used from the
    browser.
 5. PARTIAL. The write path is proven for initialize_project and create_task:
@@ -349,8 +349,8 @@ see DEVNET-PROOF-BROWSER.md and commit 715a7b8. Both were signed by Phantom
 53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG on Devnet and decoded byte for
 byte. The README row is PARTIAL, not DONE, because the remaining nine
 instructions have never been sent from a browser. Next in line is claim_task:
-the provider path now exists and its wire format is tested, but nothing calls
-it yet, so no browser claim has ever been sent.
+the provider path exists, its wire format is tested, and the task list now has a
+Claim on chain button, but no browser claim has been signed yet.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
 6. DONE. README test counts are 253 TS / 313 total as of this commit.
 7. Optional: `update_task` on Devnet; several independent contributor wallets;
@@ -381,7 +381,7 @@ is given; `claimTaskFn` passes the connected wallet and refuses to claim in Live
 without one. The user record is never rewritten: the wallet belongs to the session.
 Covered by `tests/claim-wallet.test.ts`, including the check that two different
 wallets produce two different commitment hashes. The browser `claim_task` path itself
-is still not wired, so this is NOT yet proven on Devnet.
+is now wired end to end: the provider in 9611165, the button in this commit. No claim has been signed on Devnet yet, so this is still NOT proven on chain.
 
 3. `attempt` is owned by the chain: `create_task` leaves it at 0 and `claim_task`
    increments it, while `submit_contribution` enforces `task.attempt == attempt`. The
@@ -439,7 +439,8 @@ local-versus-chain parity checks.
 ## 12. Commit history of this phase
 
 ```
-(this commit)  feat: wire the claim_task instruction in the live provider  <- HEAD
+(this commit)  feat: claim a task on chain from the task list button  <- HEAD
+9611165        feat: wire the claim_task instruction in the live provider
 bbc757f        fix: take the contributor wallet from the session
 715a7b8        docs: prove the browser write path on Devnet
 3aca4a6        feat: create a task on chain from the task list button

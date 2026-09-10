@@ -14,6 +14,7 @@ import { bpsToPercentString, BPS_TOTAL, poolBreakdown } from '../domain/bps';
 import { OwnershipBar, OwnershipDonut, type OwnershipSegment } from '../components/OwnershipChart';
 import { OnchainProjectPanel } from '../components/OnchainProjectPanel';
 import { OnchainTaskButton } from '../components/OnchainTaskButton';
+import { OnchainClaimButton } from '../components/OnchainClaimButton';
 import { TaskStatusBadge, ContributionStatusBadge, AIRecommendationBadge } from '../components/StatusBadges';
 import { CopyButton } from '../components/ui/CopyButton';
 import { timeAgo } from './DashboardPage';
@@ -294,6 +295,7 @@ function TasksTab({ projectId }: { projectId: string }) {
                         {assignee && <span>Assigned to {assignee.githubUsername}</span>}
                         <Badge tone="neutral" size="sm">{task.difficulty}</Badge>
                         <OnchainTaskButton project={project} task={task} />
+                        <OnchainClaimButton project={project} task={task} />
                       </div>
                     </div>
                     <TaskStatusBadge status={task.status} />
