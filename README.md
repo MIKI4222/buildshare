@@ -34,7 +34,7 @@ transaction signatures. The table below is the honest state of verification as o
 | Devnet lifecycle, ownership settled | **DONE** | 8 signatures in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md) |
 | Devnet rejection, retry and cancellation | **DONE** | 16 on-chain assertions in [`DEVNET-PROOF-BRANCHES.md`](./DEVNET-PROOF-BRANCHES.md) |
 | Web client reads live on-chain state | **DONE** | the project page decodes the Project account straight from Devnet |
-| Web client writes on-chain state | **PARTIAL** | `initialize_project` and `create_task` signed in Phantom and finalised on Devnet, see [`DEVNET-PROOF-BROWSER.md`](DEVNET-PROOF-BROWSER.md); `allocate_ownership` is implemented and tested but has never been sent from a browser |
+| Web client writes on-chain state | **PARTIAL** | `initialize_project`, `create_task` and `claim_task` signed in Phantom and finalised on Devnet, see [`DEVNET-PROOF-BROWSER.md`](DEVNET-PROOF-BROWSER.md); `allocate_ownership` is implemented and tested but has never been sent from a browser |
 | Mainnet | **NOT DONE** | out of scope for P1 |
 
 313 tests pass across three independent layers: 253 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
