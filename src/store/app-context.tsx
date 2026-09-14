@@ -124,6 +124,10 @@ export interface AppContextValue {
   claimTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
   createTask: (input: CreateTaskInput) => Task;
   claimTask: (taskId: string) => Promise<void>;
+  // STOP-19: creates the local contribution and its merged pull request
+  // record. Nothing is sent on chain here. submit_contribution goes out at
+  // approval time, because the evidence hash does not exist until then.
+  submitWork: (taskId: string, pullRequest: domain.PullRequestInput) => void;
   approveContribution: (contributionId: string) => Promise<void>;
   rejectContribution: (contributionId: string, reason?: string) => void;
   expireClaims: () => void;
@@ -492,6 +496,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [db, mode, walletAddress],
   );
 
+  const submitWorkFn = useCallback(
+    (taskId: string, pullRequest: domain.PullRequestInput) => {
+      const result = domain.submitContribution(db, {
+        taskId,
+        userId: CURRENT_USER_ID,
+        pullRequest,
+      });
+      setDb(result.db);
+    },
+    [db],
+  );
+
   const approveContributionFn = useCallback(
     async (contributionId: string) => {
       // 1. Founder approval fixes the evidence hash.
@@ -647,6 +663,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     claimTaskOnchain: claimTaskOnchainFn,
     createTask: createTaskFn,
     claimTask: claimTaskFn,
+    submitWork: submitWorkFn,
     approveContribution: approveContributionFn,
     rejectContribution: rejectContributionFn,
     expireClaims: expireClaimsFn,
