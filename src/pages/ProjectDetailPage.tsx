@@ -282,7 +282,8 @@ function TasksTab({ projectId }: { projectId: string }) {
           {sorted.map((task) => {
             const assignee = task.assignedUserId ? getUser(task.assignedUserId) : null;
             return (
-              <Link key={task.id} to={`/projects/${project.id}/tasks/${task.id}`}>
+              <div key={task.id} className="space-y-2">
+                <Link to={`/projects/${project.id}/tasks/${task.id}`}>
                 <Card hover className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -297,13 +298,14 @@ function TasksTab({ projectId }: { projectId: string }) {
                         <Badge tone="neutral" size="sm">{task.difficulty}</Badge>
                         <OnchainTaskButton project={project} task={task} />
                         <OnchainClaimButton project={project} task={task} />
-                        <SubmitWorkForm task={task} />
                       </div>
                     </div>
                     <TaskStatusBadge status={task.status} />
                   </div>
                 </Card>
-              </Link>
+                </Link>
+                <SubmitWorkForm task={task} />
+              </div>
             );
           })}
         </div>

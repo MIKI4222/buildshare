@@ -484,3 +484,45 @@ b5efb49  P0 baseline
 ```
 
 A dropped pre-amend commit `6a2d407` exists in reflog only; ignore it.
+
+## 14. Session handoff: browser contribution path
+
+State: the browser path is complete through contribution creation and blocked
+one step before approval.
+
+Done and pushed (`c0ccfcb`): STOP-19 adds `submitWork` to the context and
+`SubmitWorkForm`, a six-field form. A contribution now exists in the browser:
+`ctr_mu1eikn7_ehto13`, task `tsk_mtv7gxr5_1owea0`, status SUBMITTED, attempt 1,
+evidence hash still null. Its pull request record carries the four fields that
+reach the chain: number 1 (synthetic, no real PR exists), repository
+MIKI4222/buildshare, base branch feature/p0-hardening, merge commit
+c0ccfcb42008fc9da77c0654d013f513426d3de1. The first three are verifiable on
+GitHub; the number is not, and must be described as synthetic.
+
+Uncommitted in the working tree:
+- `SubmitWorkForm.tsx`: stopPropagation on open, submit, cancel and form clicks.
+- `ProjectDetailPage.tsx`: the task row `<Link>` wrapped in a div so the form
+  sits outside the link. Clicking an input navigated away otherwise.
+
+STOP-20 is designed but not written: no file contains `runReview`. Part A
+adds `runReview(contributionId)` to the context, which calls
+`contributionService.verify` with the task and pull request, hands the result
+to `domain.recordVerification`, and stores the new database. `changedFiles`
+must be an empty array: the pull request record holds a file count, not names.
+Part B is a `canReview` flag and a Run review button before `{canApprove && (`.
+
+Blocker and next step: approval requires PENDING_APPROVAL
+(`ProjectDetailPage.tsx:564`), the contribution is SUBMITTED, and nothing in
+the UI performs the SUBMITTED -> AI_REVIEW -> PENDING_APPROVAL move that
+`recordVerification` (`reducers.ts:774`) implements. STOP-20 part B is a
+`canReview` flag plus a Run review button before the `{canApprove && (` block
+at line 733. Then approval sends two signatures: submit_contribution, then
+approve plus allocate.
+
+Environment: dev server must run on port 5174. Browser state lives in that
+origin's localStorage; port 5173 shows an empty demo database. Phantom
+53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG, devnet, about 10 SOL. The claim
+was signed on 10 September and the seven-day window closes around 17 September.
+
+Unchanged: three of eleven instructions proven from a browser. Nothing new
+reached Devnet this session.

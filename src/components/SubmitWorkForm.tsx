@@ -11,7 +11,7 @@
 // are placeholders: line counts are zeroes and the dates are "now". None of
 // them reach the chain.
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type MouseEvent } from 'react';
 import { useApp } from '../store/app-context';
 import type { Task } from '../domain/types';
 
@@ -38,6 +38,7 @@ export function SubmitWorkForm(props: { task: Task }) {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setError(null);
     const n = Number(prNumber);
     if (!Number.isInteger(n) || n <= 0) {
@@ -81,7 +82,11 @@ export function SubmitWorkForm(props: { task: Task }) {
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={(e: MouseEvent<HTMLButtonElement>) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(true);
+        }}
         className="rounded bg-ink-900 px-3 py-1.5 text-sm text-white"
       >
         Submit work
@@ -90,7 +95,11 @@ export function SubmitWorkForm(props: { task: Task }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-2 rounded border border-ink-200 p-3">
+    <form
+      onSubmit={onSubmit}
+      onClick={(e: MouseEvent<HTMLFormElement>) => e.stopPropagation()}
+      className="space-y-2 rounded border border-ink-200 p-3"
+    >
       <div className="text-sm font-medium">Submit work for {task.externalKey}</div>
       <input className={fieldStyle} value={prNumber} onChange={(e) => setPrNumber(e.target.value)} placeholder="Pull request number, e.g. 12" />
       <input className={fieldStyle} value={sha} onChange={(e) => setSha(e.target.value)} placeholder="Merge commit SHA" />
@@ -106,7 +115,17 @@ export function SubmitWorkForm(props: { task: Task }) {
       {error === null ? null : <div className="text-xs text-red-600">{error}</div>}
       <div className="flex gap-2">
         <button type="submit" className="rounded bg-ink-900 px-3 py-1.5 text-sm text-white">Create contribution</button>
-        <button type="button" onClick={() => setOpen(false)} className="rounded border border-ink-200 px-3 py-1.5 text-sm">Cancel</button>
+        <button
+          type="button"
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+          }}
+          className="rounded border border-ink-200 px-3 py-1.5 text-sm"
+        >
+          Cancel
+        </button>
       </div>
     </form>
   );
