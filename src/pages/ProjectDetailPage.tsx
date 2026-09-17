@@ -15,6 +15,7 @@ import { OwnershipBar, OwnershipDonut, type OwnershipSegment } from '../componen
 import { OnchainProjectPanel } from '../components/OnchainProjectPanel';
 import { OnchainTaskButton } from '../components/OnchainTaskButton';
 import { OnchainClaimButton } from '../components/OnchainClaimButton';
+import { OnchainExpireClaimButton } from '../components/OnchainExpireClaimButton';
 import { SubmitWorkForm } from '../components/SubmitWorkForm';
 import { TaskStatusBadge, ContributionStatusBadge, AIRecommendationBadge } from '../components/StatusBadges';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -298,6 +299,7 @@ function TasksTab({ projectId }: { projectId: string }) {
                         <Badge tone="neutral" size="sm">{task.difficulty}</Badge>
                         <OnchainTaskButton project={project} task={task} />
                         <OnchainClaimButton project={project} task={task} />
+                        <OnchainExpireClaimButton project={project} task={task} />
                       </div>
                     </div>
                     <TaskStatusBadge status={task.status} />
@@ -372,8 +374,8 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
           </div>
           <h1 className="text-xl font-bold text-ink-900">{task.title}</h1>
         </div>
-        {task.status === 'OPEN' && (
-          <Button variant="secondary" onClick={() => setClaimModal(true)} leftIcon={<GitBranch className="h-4 w-4" />}>Claim Task</Button>
+        {(task.status === 'OPEN' || task.status === 'REJECTED') && (
+          <Button variant="secondary" onClick={() => setClaimModal(true)} leftIcon={<GitBranch className="h-4 w-4" />}>{task.status === 'REJECTED' ? 'Re-claim Task' : 'Claim Task'}</Button>
         )}
       </div>
 
@@ -547,11 +549,12 @@ function ContributionsTab({ projectId }: { projectId: string }) {
 
 // ─── Contribution Detail ───────────────────────────────────────
 function ContributionDetail({ projectId, contributionId }: { projectId: string; contributionId: string }) {
-  const { getContribution, getTask, getUser, getPR, approveContribution, rejectContribution, mode, db } = useApp();
+  const { getContribution, getTask, getUser, getPR, approveContribution, rejectContribution, runReview, mode, db } = useApp();
   const contrib = getContribution(contributionId);
   const navigate = useNavigate();
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showApproveModal, setShowApproveModal] = useState(false);
 
@@ -562,6 +565,17 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
   const pr = contrib.pullRequestId ? getPR(contrib.pullRequestId) : undefined;
   const evaluation = db.evaluations.find((e) => e.contributionId === contrib.id);
   const canApprove = contrib.status === 'PENDING_APPROVAL';
+  // The domain allows SUBMITTED -> REJECTED and AI_REVIEW -> REJECTED, but the
+  // UI used to hide both actions until PENDING_APPROVAL, leaving a submitted
+  // attempt with no way out. Rejection opens earlier; approval does NOT,
+  // because approving unreviewed work would skip verification.
+  const canReject =
+    contrib.status === 'SUBMITTED' ||
+    contrib.status === 'AI_REVIEW' ||
+    contrib.status === 'PENDING_APPROVAL';
+  // The review is the only path out of SUBMITTED towards approval:
+  // recordVerification walks SUBMITTED -> AI_REVIEW -> PENDING_APPROVAL.
+  const canReview = contrib.status === 'SUBMITTED';
   const settlement = contrib.settlement;
 
   const handleApprove = async () => {
@@ -577,9 +591,37 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
     }
   };
 
+  const handleRunReview = async (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setReviewing(true);
+    setError(null);
+    try {
+      await runReview(contributionId);
+    } catch (err) {
+      // No score is ever invented here: a failed review leaves the
+      // contribution in SUBMITTED and says so.
+      setError(err instanceof Error ? err.message : 'Failed to run the review');
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   const handleReject = () => {
+    // The audit record keeps this reason forever, so it must state the real
+    // cause. The domain requires at least 10 characters and the default text
+    // in the context would claim a quality failure that did not happen.
+    const reason = window.prompt(
+      'Why is this contribution rejected? At least 10 characters.',
+      '',
+    );
+    if (reason === null) return;
+    if (reason.trim().length < 10) {
+      setError('A rejection reason of at least 10 characters is required. Nothing changed.');
+      return;
+    }
     setRejecting(true);
-    try { rejectContribution(contributionId); } finally { setRejecting(false); }
+    try { rejectContribution(contributionId, reason.trim()); } finally { setRejecting(false); }
   };
 
   const scores = evaluation
@@ -694,7 +736,7 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
             </div>
             <div>
               <p className="text-xs text-ink-400 mb-1">Commit</p>
-              <p className="text-ink-700 font-mono text-xs">a1b2c3d4e5f6</p>
+              <p className="text-ink-700 font-mono text-xs">{pr?.mergeCommitSha || 'No commit recorded'}</p>
             </div>
           </div>
         </CardBody>
@@ -730,19 +772,24 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
       )}
 
       {/* Actions */}
-      {canApprove && (
+      {canReject && (
         <Card className="border-warning-200 bg-warning-50/30">
           <CardBody className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-warning-500 mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-ink-900">Contribution requires approval</p>
+                <p className="text-sm font-semibold text-ink-900">{canApprove ? 'Contribution requires approval' : 'Contribution is not reviewed yet'}</p>
                 <p className="text-xs text-ink-500 mt-0.5">AI recommendation is advisory. Final approval is performed by authorized project authority.</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {canReview && (
+                <Button variant="outline" size="sm" loading={reviewing} onClick={handleRunReview}>Run review</Button>
+              )}
               <Button variant="danger" size="sm" loading={rejecting} onClick={handleReject} leftIcon={<XCircle className="h-4 w-4" />}>Reject</Button>
-              <Button variant="success" size="sm" onClick={() => setShowApproveModal(true)} leftIcon={<CheckCircle className="h-4 w-4" />}>Approve</Button>
+              {canApprove && (
+                <Button variant="success" size="sm" onClick={() => setShowApproveModal(true)} leftIcon={<CheckCircle className="h-4 w-4" />}>Approve</Button>
+              )}
             </div>
           </CardBody>
         </Card>

@@ -105,6 +105,14 @@ export interface SubmitContributionOnchainInput {
   evidenceHash: string;
 }
 
+export interface ExpireClaimOnchainInput {
+  projectId: string;
+  taskId: string;
+  onchainProjectId: number;
+  onchainTaskId: number;
+  founderWallet: string;
+}
+
 export interface SolanaProvider {
   readonly mode: 'demo' | 'live';
   readonly network: SolanaNetwork;
@@ -128,6 +136,9 @@ export interface SolanaProvider {
   // Creates the Contribution account on chain with a non-zero evidence hash.
   // The contributor signs and pays rent. STOP-18.
   submitContribution(input: SubmitContributionOnchainInput): Promise<SolanaResult>;
+  // Permissionless. Moves a stale Claimed task to Expired on chain. The
+  // reservation is not released: that belongs to cancel_task alone.
+  expireClaim(input: ExpireClaimOnchainInput): Promise<SolanaResult>;
 }
 
 // A signature is real only if it looks like a real base58 signature AND does

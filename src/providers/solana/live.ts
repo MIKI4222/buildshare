@@ -93,6 +93,10 @@ export function encodeClaimTaskData(commitmentHash: Uint8Array): Uint8Array {
   return data;
 }
 
+// expire_claim takes no arguments and its payload is the discriminator
+// alone. Taken from target/idl/buildshare.json, not from memory.
+export const EXPIRE_CLAIM_DISCRIMINATOR = [176, 78, 241, 29, 159, 81, 26, 6];
+
 export const SUBMIT_CONTRIBUTION_DISCRIMINATOR = [123, 132, 230, 253, 141, 22, 214, 91];
 export const APPROVE_CONTRIBUTION_DISCRIMINATOR = [202, 161, 21, 234, 88, 85, 197, 7];
 
@@ -503,10 +507,16 @@ export class LiveSolanaProvider implements SolanaProvider {
     }
     const decodeModule = await import('../../lib/solana/decode');
     const current = decodeModule.decodeTaskAccount(new Uint8Array(before.data));
-    if (current.status !== 'OPEN') {
+    // is_claimable() in task.rs accepts Open, Expired and Rejected. The
+    // client must not be stricter than the program it talks to.
+    const claimable =
+      current.status === 'OPEN' ||
+      current.status === 'EXPIRED' ||
+      current.status === 'REJECTED';
+    if (!claimable) {
       throw domainError(
         'NOT_CLAIMABLE',
-        'The task at ' + taskPda + ' is ' + current.status + ' on chain, not OPEN. Nothing was sent.',
+        'The task at ' + taskPda + ' is ' + current.status + ' on chain, which is not claimable. Nothing was sent.',
         { taskId: input.taskId, onchainStatus: current.status },
       );
     }
@@ -874,6 +884,128 @@ export class LiveSolanaProvider implements SolanaProvider {
     }
     // buildOnchainResult refuses anything that is not a real base58 signature.
     return this.buildOnchainResult(contributionPda.toBase58(), signature);
+  }
+
+  // Permissionless on chain: caller signs and pays the fee, nothing else.
+  // The reservation is NOT released here, by design.
+  async expireClaim(
+    input: import('./types').ExpireClaimOnchainInput,
+  ): Promise<SolanaResult> {
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'Expiring a claim on chain needs a browser wallet. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const callerKey = new PublicKey(connected.toString());
+
+    const projectPda = await this.deriveProjectPda(input.onchainProjectId, input.founderWallet);
+    const taskPda = await this.deriveTaskPda(projectPda, input.onchainTaskId);
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+    const taskKey = new PublicKey(taskPda);
+
+    // Read before writing. A task that is not Claimed cannot be expired, and
+    // the window itself is enforced by the program, never assumed here.
+    const before = await connection.getAccountInfo(taskKey);
+    if (before === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'No task account exists at ' + taskPda + '. Nothing was sent.',
+        { taskId: input.taskId },
+      );
+    }
+    const decodeModule = await import('../../lib/solana/decode');
+    const current = decodeModule.decodeTaskAccount(new Uint8Array(before.data));
+    if (current.status !== 'CLAIMED') {
+      throw domainError(
+        'NOT_CLAIMABLE',
+        'The task at ' + taskPda + ' is ' + current.status + ' on chain, so there is no claim ' +
+          'to expire. Nothing was sent.',
+        { taskId: input.taskId, onchainStatus: current.status },
+      );
+    }
+
+    const program = new PublicKey(this.programId);
+    const tx = new web3.Transaction();
+    // Account order and flags copied from the IDL for expire_claim: caller is
+    // a signer only, task is writable.
+    tx.add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: callerKey, isSigner: true, isWritable: false },
+          { pubkey: taskKey, isSigner: false, isWritable: true },
+        ],
+        data: new Uint8Array(EXPIRE_CLAIM_DISCRIMINATOR),
+      }),
+    );
+
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = callerKey;
+    tx.recentBlockhash = latest.blockhash;
+
+    try {
+      const signed = await injected.signTransaction(tx);
+      const signature = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+      await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: latest.blockhash,
+          lastValidBlockHeight: latest.lastValidBlockHeight,
+        },
+        'confirmed',
+      );
+      // A confirmed signature proves a transaction landed, not what it stored.
+      const after = await connection.getAccountInfo(taskKey);
+      if (after === null) {
+        throw domainError(
+          'INVARIANT_VIOLATION',
+          'The transaction confirmed but no account exists at ' + taskPda +
+            '. Signature: ' + signature + '.',
+          { taskId: input.taskId, signature },
+        );
+      }
+      const stored = decodeModule.decodeTaskAccount(new Uint8Array(after.data));
+      if (stored.status !== 'EXPIRED') {
+        throw domainError(
+          'INVARIANT_VIOLATION',
+          'The task at ' + taskPda + ' is ' + stored.status + ' after the transaction, not ' +
+            'EXPIRED. Nothing may be recorded locally. Signature: ' + signature + '.',
+          { taskId: input.taskId, signature, actualStatus: stored.status },
+        );
+      }
+      return this.buildOnchainResult(taskPda, signature);
+    } catch (e: unknown) {
+      const text = e instanceof Error ? e.message : String(e);
+      // ClaimStillActive is error 6008 -> 0x1768 in a program log.
+      if (text.indexOf('ClaimStillActive') !== -1 || text.indexOf('0x1768') !== -1) {
+        throw domainError(
+          'NOT_CLAIMABLE',
+          'The program refused: this claim window has not closed yet.',
+          { taskId: input.taskId },
+        );
+      }
+      throw e;
+    }
   }
 
   async allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult> {

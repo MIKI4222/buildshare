@@ -122,12 +122,19 @@ export interface AppContextValue {
   // STOP-16: sends claim_task for a task already claimed locally and already
   // created on chain. Live mode only.
   claimTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
+  // STOP-26: sends expire_claim, which is permissionless on chain. The
+  // reservation is not released: only cancel_task does that.
+  expireClaimOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
   createTask: (input: CreateTaskInput) => Task;
   claimTask: (taskId: string) => Promise<void>;
   // STOP-19: creates the local contribution and its merged pull request
   // record. Nothing is sent on chain here. submit_contribution goes out at
   // approval time, because the evidence hash does not exist until then.
   submitWork: (taskId: string, pullRequest: domain.PullRequestInput) => void;
+  // STOP-20: runs the advisory review and records it, moving the
+  // contribution SUBMITTED -> AI_REVIEW -> PENDING_APPROVAL. The current AI
+  // provider is DemoAIProvider: deterministic, no model is called.
+  runReview: (contributionId: string) => Promise<void>;
   approveContribution: (contributionId: string) => Promise<void>;
   rejectContribution: (contributionId: string, reason?: string) => void;
   expireClaims: () => void;
@@ -481,6 +488,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [db, mode, providers, walletAddress],
   );
 
+  const expireClaimOnchainFn = useCallback(
+    async (taskId: string): Promise<{ pda: string; signature: string }> => {
+      const task = db.tasks.find((t) => t.id === taskId);
+      if (!task) throw new Error('Task not found: ' + taskId);
+      const project = db.projects.find((p) => p.id === task.projectId);
+      if (!project) throw new Error('Project not found: ' + task.projectId);
+      if (mode !== 'live') {
+        throw new Error('Switch to live mode to expire this claim on chain.');
+      }
+      if (!walletAddress) {
+        throw new Error('Connect a wallet before sending expire_claim.');
+      }
+      if (project.solanaProjectPda === null) {
+        throw new Error('This project does not exist on chain yet.');
+      }
+      if (task.onchainTaskId === null) {
+        throw new Error('This task does not exist on chain, so it carries no claim.');
+      }
+      // No local status check: the chain owns the claim window and refuses
+      // with ClaimStillActive while it is open.
+      const result = await providers.solana.expireClaim({
+        projectId: project.id,
+        taskId: task.id,
+        onchainProjectId: project.onchainProjectId,
+        onchainTaskId: task.onchainTaskId,
+        founderWallet: project.founderWallet,
+      });
+      if (result.kind !== 'onchain') {
+        throw new Error('The provider did not return an on-chain result. Nothing changed.');
+      }
+      return { pda: result.pda, signature: result.signature };
+    },
+    [db, mode, providers, walletAddress],
+  );
+
   const claimTaskFn = useCallback(
     async (taskId: string) => {
       if (mode === 'live' && !walletAddress) {
@@ -506,6 +548,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDb(result.db);
     },
     [db],
+  );
+
+  const runReviewFn = useCallback(
+    async (contributionId: string) => {
+      const contribution = db.contributions.find((c) => c.id === contributionId);
+      if (!contribution) throw new Error('Contribution not found: ' + contributionId);
+      const task = domain.requireTask(db, contribution.taskId);
+      const pr = db.pullRequests.find((x) => x.id === contribution.pullRequestId);
+      if (!pr) throw new Error('Contribution has no linked pull request.');
+      // changedFiles stays empty: the app does not read the diff from GitHub.
+      const verification = await contributionService.verify({
+        taskTitle: task.title,
+        taskDescription: task.description,
+        acceptanceCriteria: task.acceptanceCriteria,
+        prTitle: pr.title,
+        prDescription: pr.description,
+        changedFiles: [],
+        additions: pr.additions,
+        deletions: pr.deletions,
+        commitSha: pr.mergeCommitSha,
+      });
+      const result = domain.recordVerification(db, { contributionId, verification });
+      setDb(result.db);
+    },
+    [db, contributionService],
   );
 
   const approveContributionFn = useCallback(
@@ -661,9 +728,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     publishProjectOnchain: publishProjectOnchainFn,
     publishTaskOnchain: publishTaskOnchainFn,
     claimTaskOnchain: claimTaskOnchainFn,
+    expireClaimOnchain: expireClaimOnchainFn,
     createTask: createTaskFn,
     claimTask: claimTaskFn,
     submitWork: submitWorkFn,
+    runReview: runReviewFn,
     approveContribution: approveContributionFn,
     rejectContribution: rejectContributionFn,
     expireClaims: expireClaimsFn,

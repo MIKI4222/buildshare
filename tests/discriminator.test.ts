@@ -12,8 +12,13 @@ import {
   ALLOCATE_OWNERSHIP_DISCRIMINATOR,
   CLAIM_TASK_DISCRIMINATOR,
   CREATE_MEMBER_DISCRIMINATOR,
+  APPROVE_CONTRIBUTION_DISCRIMINATOR,
+  CREATE_TASK_DISCRIMINATOR,
+  EXPIRE_CLAIM_DISCRIMINATOR,
   INITIALIZE_PROJECT_DISCRIMINATOR,
+  SUBMIT_CONTRIBUTION_DISCRIMINATOR,
   encodeClaimTaskData,
+  encodeSubmitContributionData,
   encodeInitializeProjectData,
 } from '../src/providers/solana/live';
 import { u16le, u64le } from '../src/lib/solana/pda';
@@ -101,5 +106,65 @@ describe('claim_task wire format', () => {
 
   it('does not share a discriminator with create_member', () => {
     assert.notDeepEqual(CLAIM_TASK_DISCRIMINATOR, CREATE_MEMBER_DISCRIMINATOR);
+  });
+});
+
+// Every instruction this app has actually signed from a browser, pinned
+// against the Anchor naming rule. Signatures on Devnet prove the program
+// accepted these exact bytes; this test proves they never drift.
+describe('the full set of browser-signed instructions', () => {
+  const pinned: Array<[string, number[]]> = [
+    ['initialize_project', INITIALIZE_PROJECT_DISCRIMINATOR],
+    ['create_task', CREATE_TASK_DISCRIMINATOR],
+    ['claim_task', CLAIM_TASK_DISCRIMINATOR],
+    ['expire_claim', EXPIRE_CLAIM_DISCRIMINATOR],
+    ['submit_contribution', SUBMIT_CONTRIBUTION_DISCRIMINATOR],
+    ['create_member', CREATE_MEMBER_DISCRIMINATOR],
+    ['approve_contribution', APPROVE_CONTRIBUTION_DISCRIMINATOR],
+    ['allocate_ownership', ALLOCATE_OWNERSHIP_DISCRIMINATOR],
+  ];
+
+  for (const [name, bytes] of pinned) {
+    it(name + ' matches sha256 of its global name', () => {
+      assert.deepEqual(bytes, anchorDiscriminator(name));
+      assert.equal(bytes.length, 8);
+    });
+  }
+
+  it('all eight discriminators are distinct', () => {
+    const seen = new Set(pinned.map(([, bytes]) => bytes.join(',')));
+    assert.equal(seen.size, pinned.length);
+  });
+});
+
+describe('submit_contribution wire format', () => {
+  it('encodes discriminator, attempt byte, then a 32-byte evidence hash', () => {
+    const hash = new Uint8Array(32).fill(9);
+    const data = encodeSubmitContributionData(2, hash);
+    assert.equal(data.length, 41);
+    assert.deepEqual(Array.from(data.subarray(0, 8)), SUBMIT_CONTRIBUTION_DISCRIMINATOR);
+    assert.equal(data[8], 2);
+    assert.deepEqual(Array.from(data.subarray(9)), Array.from(hash));
+  });
+
+  it('reproduces the bytes Devnet accepted in 3bysPZU9', () => {
+    // Evidence hash of contribution ctr_mu5r96xt_pmu76g, attempt 2, read back
+    // from the Contribution account at 4F3Boqnx after allocation.
+    const evidence =
+      '7934e62031f4d4e82aa74c8b6df2d42c4f23213eb964496341790e92fe25f7c6';
+    const bytes = Uint8Array.from(
+      (evidence.match(/../g) as string[]).map((b) => parseInt(b, 16)),
+    );
+    const data = encodeSubmitContributionData(2, bytes);
+    assert.deepEqual(
+      Array.from(data.subarray(0, 9)),
+      [...SUBMIT_CONTRIBUTION_DISCRIMINATOR, 2],
+    );
+    assert.deepEqual(Array.from(data.subarray(9)), Array.from(bytes));
+  });
+
+  it('refuses an evidence hash that is not 32 bytes', () => {
+    assert.throws(() => encodeSubmitContributionData(2, new Uint8Array(31)), RangeError);
+    assert.throws(() => encodeSubmitContributionData(2, new Uint8Array(33)), RangeError);
   });
 });

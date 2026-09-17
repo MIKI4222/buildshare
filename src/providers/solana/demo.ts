@@ -82,6 +82,16 @@ export class DemoSolanaProvider implements SolanaProvider {
     );
   }
 
+  async expireClaim(
+    input: import('./types').ExpireClaimOnchainInput,
+  ): Promise<never> {
+    throw domainError(
+      'LIVE_MODE_UNAVAILABLE',
+      'Demo mode cannot expire a claim on chain. Switch to live mode and connect a wallet.',
+      { taskId: input.taskId, projectId: input.projectId },
+    );
+  }
+
   async ensureProjectPdaAvailable(): Promise<void> {
     return;
   }
