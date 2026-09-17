@@ -213,6 +213,12 @@ account bytes at 98..130  identical
 The same 32 bytes exist in the browser database, in the transaction and in the account.
 `tests/discriminator.test.ts` reproduces these exact bytes from the encoder.
 
+The evidence hash commits to the repository state at the moment of signing: commit
+`5d16f135b3b4f7aeab416c7acf169df8af9a6450`, which was the head of pull request #1 when the
+transaction was sent. Later commits on `feature/p0-hardening` move the branch and the pull
+request head forward; they do not and must not change this hash. If the head SHA shown on
+GitHub differs from the one inside the hash, that is the design working, not a mismatch.
+
 ### 5.4 One approval, three instructions, and the accounting closes
 
 The approval sent a single transaction containing `create_member`, `approve_contribution`
