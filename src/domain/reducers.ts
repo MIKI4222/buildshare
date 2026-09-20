@@ -644,7 +644,13 @@ export interface PullRequestInput {
 
 export function submitContribution(
   db: AppDB,
-  input: { taskId: string; userId: string; pullRequest: PullRequestInput },
+  input: {
+    taskId: string;
+    userId: string;
+    pullRequest: PullRequestInput;
+    evidenceHash?: string | null;
+    evidenceSchemaVersion?: string | null;
+  },
   deps: Deps = defaultDeps,
 ): { db: AppDB; contribution: Contribution; pullRequest: PullRequest } {
   const task = requireTask(db, input.taskId);
@@ -657,6 +663,24 @@ export function submitContribution(
     { taskId: task.id },
   );
   const c = commitment as TaskCommitment;
+  const evidenceHash = input.evidenceHash === undefined ? null : input.evidenceHash;
+  const evidenceSchemaVersion =
+    input.evidenceSchemaVersion === undefined ? null : input.evidenceSchemaVersion;
+  const hasEvidence = evidenceHash !== null || evidenceSchemaVersion !== null;
+  assertDomain(
+    !hasEvidence ||
+      (
+        typeof evidenceHash === 'string' &&
+        /^[0-9a-f]{64}$/.test(evidenceHash) &&
+        evidenceSchemaVersion === 'buildshare-submission-evidence-v2'
+      ),
+    'INVARIANT_VIOLATION',
+    'Submission evidence must be a lowercase SHA-256 hash paired with the v2 schema.',
+    {
+      taskId: task.id,
+      evidenceSchemaVersion,
+    },
+  );
   const at = deps.now();
   assertDomain(
     !isClaimExpired(c, at),
@@ -705,7 +729,8 @@ export function submitContribution(
     rewardBps: c.rewardBps,
     status: 'SUBMITTED',
     commitmentHash: c.commitmentHash,
-    evidenceHash: null,
+    evidenceHash,
+    evidenceSchemaVersion,
     aiScore: null,
     aiRecommendation: null,
     aiEvaluationHash: null,
@@ -868,27 +893,42 @@ export async function approveContribution(
   const pullRequest = pr as PullRequest;
 
   const at = deps.now();
-  const evidenceHash = await computeEvidenceHash({
-    projectId: project.id,
-    taskId: task.id,
-    taskExternalKey: task.externalKey,
-    acceptanceCriteriaHash: c.acceptanceCriteriaHash,
-    rewardBps: c.rewardBps,
-    repositoryFullName: c.repositoryFullName,
-    baseBranch: c.baseBranch,
-    prNumber: pullRequest.githubPrNumber,
-    mergeCommitSha: pullRequest.mergeCommitSha || '',
-    contributorGithubId: contributor.githubUserId,
-    contributorWallet: c.contributorWallet,
-    aiEvaluationHash: contribution.aiEvaluationHash,
-    approvedByWallet: approver.walletAddress,
-    approvedAt: at,
-  });
+  let evidenceHash = contribution.evidenceHash;
+  let evidenceSchemaVersion = contribution.evidenceSchemaVersion;
+
+  // Historical/demo compatibility only. New Live submissions arrive with a
+  // sealed Submission Evidence v2 hash and approval must never replace it.
+  if (evidenceHash === null) {
+    evidenceHash = await computeEvidenceHash({
+      projectId: project.id,
+      taskId: task.id,
+      taskExternalKey: task.externalKey,
+      acceptanceCriteriaHash: c.acceptanceCriteriaHash,
+      rewardBps: c.rewardBps,
+      repositoryFullName: c.repositoryFullName,
+      baseBranch: c.baseBranch,
+      prNumber: pullRequest.githubPrNumber,
+      mergeCommitSha: pullRequest.mergeCommitSha || '',
+      contributorGithubId: contributor.githubUserId,
+      contributorWallet: c.contributorWallet,
+      aiEvaluationHash: contribution.aiEvaluationHash,
+      approvedByWallet: approver.walletAddress,
+      approvedAt: at,
+    });
+    evidenceSchemaVersion = 'buildshare-evidence-v1';
+  }
+  assertDomain(
+    evidenceSchemaVersion !== null,
+    'INVARIANT_VIOLATION',
+    'An evidence hash exists without an explicit schema version.',
+    { contributionId: contribution.id },
+  );
 
   const updatedContribution: Contribution = {
     ...contribution,
     status: 'APPROVED',
     evidenceHash,
+    evidenceSchemaVersion,
     approvedAt: at,
   };
   const updatedTask: Task = { ...task, status: 'APPROVED', updatedAt: at };

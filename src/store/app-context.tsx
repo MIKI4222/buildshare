@@ -20,11 +20,17 @@ import type {
   User,
 } from '../domain/types';
 import { createDemoDB, emptyDB } from '../data/demo-seed';
+import { migrateEvidenceSchemas } from './evidence-migration';
 import { getProviders, liveAvailability, resetProviderCache, type Providers } from '../providers';
 import { ContributionService } from '../services/contribution';
 import { poolBreakdown, type PoolBreakdown } from '../domain/bps';
 import { isDomainError } from '../domain/errors';
 import * as domain from '../domain/reducers';
+import {
+  computeRejectReasonHash,
+  computeSubmissionEvidenceHash,
+  SUBMISSION_EVIDENCE_SCHEMA_VERSION,
+} from '../domain/evidence';
 
 const STORAGE_KEY = 'buildshare-db-v2';
 const MODE_KEY = 'buildshare-mode-v1';
@@ -38,7 +44,7 @@ export const DEMO_WALLET_ADDRESS = 'DemoWallet11111111111111111111111111111111';
 function loadStoredDB(): AppDB | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as AppDB;
+    if (raw) return migrateEvidenceSchemas(JSON.parse(raw) as AppDB);
   } catch {
     /* ignore */
   }
@@ -134,16 +140,21 @@ export interface AppContextValue {
   cancelTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
   createTask: (input: CreateTaskInput) => Task;
   claimTask: (taskId: string) => Promise<void>;
-  // STOP-19: creates the local contribution and its merged pull request
-  // record. Nothing is sent on chain here. submit_contribution goes out at
-  // approval time, because the evidence hash does not exist until then.
-  submitWork: (taskId: string, pullRequest: domain.PullRequestInput) => void;
+  // Seals Submission Evidence v2. Live mode confirms and reads back
+  // submit_contribution before persisting the local records.
+  submitWork: (
+    taskId: string,
+    pullRequest: domain.PullRequestInput,
+  ) => Promise<void>;
   // STOP-20: runs the advisory review and records it, moving the
   // contribution SUBMITTED -> AI_REVIEW -> PENDING_APPROVAL. The current AI
   // provider is DemoAIProvider: deterministic, no model is called.
   runReview: (contributionId: string) => Promise<void>;
   approveContribution: (contributionId: string) => Promise<void>;
-  rejectContribution: (contributionId: string, reason?: string) => void;
+  rejectContribution: (
+    contributionId: string,
+    reason?: string,
+  ) => Promise<void>;
   expireClaims: () => void;
   resetDemo: () => void;
   // Ownership accounting. remainingBps is always derived, never stored.
@@ -684,15 +695,95 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const submitWorkFn = useCallback(
-    (taskId: string, pullRequest: domain.PullRequestInput) => {
-      const result = domain.submitContribution(db, {
-        taskId,
-        userId: CURRENT_USER_ID,
-        pullRequest,
-      });
-      setDb(result.db);
+    async (
+      taskId: string,
+      pullRequest: domain.PullRequestInput,
+    ) => {
+      if (mode === 'live' && !walletAddress) {
+        throw new Error(
+          'Connect the contributor wallet before submission.',
+        );
+      }
+
+      const task = domain.requireTask(db, taskId);
+      const project = domain.requireProject(
+        db,
+        task.projectId,
+      );
+      const contributor = domain.requireUser(
+        db,
+        CURRENT_USER_ID,
+      );
+      const commitment = task.commitment;
+
+      if (!commitment) {
+        throw new Error(
+          'The task has no active commitment.',
+        );
+      }
+
+      const evidenceHash =
+        await computeSubmissionEvidenceHash({
+          projectId: project.id,
+          taskId: task.id,
+          taskExternalKey: task.externalKey,
+          attempt: commitment.attempt,
+          commitmentHash: commitment.commitmentHash,
+          acceptanceCriteriaHash:
+            commitment.acceptanceCriteriaHash,
+          rewardBps: commitment.rewardBps,
+          repositoryFullName:
+            commitment.repositoryFullName,
+          baseBranch: commitment.baseBranch,
+          prNumber: pullRequest.githubPrNumber,
+          mergeCommitSha:
+            pullRequest.mergeCommitSha || '',
+          contributorGithubId:
+            contributor.githubUserId,
+          contributorWallet:
+            commitment.contributorWallet,
+        });
+
+      const submitted = domain.submitContribution(
+        db,
+        {
+          taskId,
+          userId: CURRENT_USER_ID,
+          pullRequest,
+          evidenceHash,
+          evidenceSchemaVersion:
+            SUBMISSION_EVIDENCE_SCHEMA_VERSION,
+        },
+      );
+
+      if (providers.solana.mode === 'live') {
+        const chain =
+          await providers.solana.submitContribution({
+            projectId: project.id,
+            taskId: task.id,
+            contributionId:
+              submitted.contribution.id,
+            onchainProjectId:
+              project.onchainProjectId,
+            onchainTaskId: task.onchainTaskId,
+            founderWallet: project.founderWallet,
+            contributorWallet:
+              commitment.contributorWallet,
+            attempt:
+              submitted.contribution.attempt,
+            evidenceHash,
+          });
+
+        if (chain.kind !== 'onchain') {
+          throw new Error(
+            'No on-chain submission was confirmed.',
+          );
+        }
+      }
+
+      setDb(submitted.db);
     },
-    [db],
+    [db, mode, providers, walletAddress],
   );
 
   const runReviewFn = useCallback(
@@ -722,7 +813,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const approveContributionFn = useCallback(
     async (contributionId: string) => {
-      // 1. Founder approval fixes the evidence hash.
+      // 1. Founder approval preserves the submission evidence hash.
       const approved = await domain.approveContribution(db, {
         contributionId,
         approverUserId: CURRENT_USER_ID,
@@ -770,30 +861,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // 2a-bis. Live only. allocate_ownership needs an APPROVED Contribution
-      // account, and only submit_contribution creates it. Evidence v1 exists
-      // just now, because it includes the approver and the approval time, so
-      // this is the earliest possible moment to put it on chain. STOP-18.
-      if (!contribution.evidenceHash) {
+      // Submission Evidence was sealed before
+      // review and already exists in the Live account.
+      // Approval must never submit it a second time.
+      if (
+        !contribution.evidenceHash ||
+        contribution.evidenceSchemaVersion === null
+      ) {
         throw new Error(
-          'Approval produced no evidence hash, so nothing can be submitted on chain.',
+          'Contribution evidence is not sealed.',
         );
       }
-      // Its own transaction, signed by the contributor, who pays the rent.
-      // A failure here stops the flow: allocating into a Contribution account
-      // that does not exist is exactly the defect this replaces.
-      await providers.solana.submitContribution({
-        projectId: project.id,
-        taskId: task.id,
-        contributionId: contribution.id,
-        onchainProjectId: project.onchainProjectId,
-        onchainTaskId: task.onchainTaskId,
-        founderWallet: project.founderWallet,
-        contributorWallet: commitment.contributorWallet,
-        attempt: contribution.attempt,
-        evidenceHash: contribution.evidenceHash,
-      });
-
 
       // 2b. Live: PENDING_ONCHAIN -> real transaction -> ONCHAIN, or
       // ONCHAIN_FAILED. No fake signature is ever produced.
@@ -823,15 +901,110 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const rejectContributionFn = useCallback(
-    (contributionId: string, reason?: string) => {
-      const result = domain.rejectContribution(db, {
-        contributionId,
-        actorUserId: CURRENT_USER_ID,
-        reason: reason || 'Rejected by the project founder: acceptance criteria not met.',
-      });
-      setDb(result.db);
+    async (
+      contributionId: string,
+      reason?: string,
+    ) => {
+      const cleanReason =
+        reason?.trim() ||
+        'Rejected by the project founder.';
+
+      if (providers.solana.mode === 'demo') {
+        const local = domain.rejectContribution(
+          db,
+          {
+            contributionId,
+            actorUserId: CURRENT_USER_ID,
+            reason: cleanReason,
+          },
+        );
+        setDb(local.db);
+        return;
+      }
+
+      if (!walletAddress) {
+        throw new Error(
+          'Connect the founder wallet first.',
+        );
+      }
+
+      const contribution =
+        domain.requireContribution(
+          db,
+          contributionId,
+        );
+      const task = domain.requireTask(
+        db,
+        contribution.taskId,
+      );
+      const project = domain.requireProject(
+        db,
+        contribution.projectId,
+      );
+      const commitment = task.commitment;
+
+      if (!commitment) {
+        throw new Error(
+          'Contribution commitment is missing.',
+        );
+      }
+
+      if (
+        !contribution.evidenceHash ||
+        contribution.evidenceSchemaVersion !==
+          SUBMISSION_EVIDENCE_SCHEMA_VERSION
+      ) {
+        throw new Error(
+          'Live rejection requires Evidence v2.',
+        );
+      }
+
+      const rejectReasonHash =
+        await computeRejectReasonHash({
+          projectId: project.id,
+          taskId: task.id,
+          contributionId: contribution.id,
+          attempt: contribution.attempt,
+          reason: cleanReason,
+          rejectedByWallet:
+            project.founderWallet,
+        });
+
+      const chain =
+        await providers.solana.rejectContribution({
+          projectId: project.id,
+          taskId: task.id,
+          contributionId: contribution.id,
+          onchainProjectId:
+            project.onchainProjectId,
+          onchainTaskId: task.onchainTaskId,
+          founderWallet: project.founderWallet,
+          contributorWallet:
+            commitment.contributorWallet,
+          attempt: contribution.attempt,
+          evidenceHash:
+            contribution.evidenceHash,
+          rejectReasonHash,
+        });
+
+      if (chain.kind !== 'onchain') {
+        throw new Error(
+          'No on-chain rejection was confirmed.',
+        );
+      }
+
+      const local = domain.rejectContribution(
+        db,
+        {
+          contributionId,
+          actorUserId: CURRENT_USER_ID,
+          reason: cleanReason,
+        },
+      );
+
+      setDb(local.db);
     },
-    [db],
+    [db, providers, walletAddress],
   );
 
   const expireClaimsFn = useCallback(() => {

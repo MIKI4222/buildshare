@@ -506,6 +506,78 @@ describe('submission and verification', () => {
     assert.match(String(approved.contribution.evidenceHash), /^[0-9a-f]{64}$/);
   });
 
+  it('preserves Evidence v2 at approval', async () => {
+    const ctx = newProject();
+    const task = addTask(ctx, 1000);
+
+    ctx.db = (
+      await domain.claimTask(
+        ctx.db,
+        {
+          taskId: task.id,
+          userId: IDS.alice,
+        },
+        ctx.deps,
+      )
+    ).db;
+
+    const hash = 'f'.repeat(64);
+
+    const submitted =
+      domain.submitContribution(
+        ctx.db,
+        {
+          taskId: task.id,
+          userId: IDS.alice,
+          pullRequest:
+            pullRequestFixture(17),
+          evidenceHash: hash,
+          evidenceSchemaVersion:
+            'buildshare-submission-evidence-v2',
+        },
+        ctx.deps,
+      );
+
+    assert.equal(
+      submitted.contribution.evidenceHash,
+      hash,
+    );
+
+    ctx.db = submitted.db;
+
+    ctx.db = domain.recordVerification(
+      ctx.db,
+      {
+        contributionId:
+          submitted.contribution.id,
+        verification:
+          verificationFixture(),
+      },
+      ctx.deps,
+    ).db;
+
+    const approved =
+      await domain.approveContribution(
+        ctx.db,
+        {
+          contributionId:
+            submitted.contribution.id,
+          approverUserId: IDS.founder,
+        },
+        ctx.deps,
+      );
+
+    assert.equal(
+      approved.contribution.evidenceHash,
+      hash,
+    );
+    assert.equal(
+      approved.contribution
+        .evidenceSchemaVersion,
+      'buildshare-submission-evidence-v2',
+    );
+  });
+
   it('refuses approval by a non founder', async () => {
     const ctx = newProject();
     const task = addTask(ctx, 1000);

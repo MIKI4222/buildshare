@@ -8,6 +8,13 @@ import {
   computeAIEvaluationHash,
   computeEvidenceHash,
   EVIDENCE_SCHEMA_VERSION,
+  buildSubmissionEvidenceV2,
+  canonicalSubmissionEvidenceJSON,
+  computeSubmissionEvidenceHash,
+  SUBMISSION_EVIDENCE_SCHEMA_VERSION,
+  buildRejectReasonV1,
+  computeRejectReasonHash,
+  REJECT_REASON_SCHEMA_VERSION,
 } from '../src/domain/evidence';
 import {
   claimExpiryFrom,
@@ -224,6 +231,93 @@ describe('commitment hashing', () => {
     assert.equal(
       isClaimExpired({ claimExpiresAt: '2026-01-08T00:00:00.000Z' }, '2026-01-08T00:00:01.000Z'),
       true,
+    );
+  });
+});
+
+
+const submissionEvidenceInput = {
+  projectId: 'prj_1',
+  taskId: 'tsk_1',
+  taskExternalKey: 'BUILD-001',
+  attempt: 2,
+  commitmentHash: 'd'.repeat(64),
+  acceptanceCriteriaHash: 'a'.repeat(64),
+  rewardBps: 1000,
+  repositoryFullName: 'acme/repo',
+  baseBranch: 'main',
+  prNumber: 17,
+  mergeCommitSha: 'c'.repeat(40),
+  contributorGithubId: '1002',
+  contributorWallet: 'AliceWallet111111111111111111111111111111',
+};
+
+const rejectReasonInput = {
+  projectId: 'prj_1',
+  taskId: 'tsk_1',
+  contributionId: 'ctr_1',
+  attempt: 2,
+  reason: 'Acceptance criteria are not satisfied.',
+  rejectedByWallet: 'FounderWallet1111111111111111111111111111',
+};
+
+describe('submission evidence v2 hashing', () => {
+  it('stamps its own version without changing Evidence v1', () => {
+    assert.equal(
+      buildSubmissionEvidenceV2(submissionEvidenceInput).schemaVersion,
+      SUBMISSION_EVIDENCE_SCHEMA_VERSION,
+    );
+    assert.equal(buildEvidenceV1(evidenceInput).schemaVersion, EVIDENCE_SCHEMA_VERSION);
+  });
+
+  it('contains exactly its 14 submission-time fields and no decision fields', () => {
+    const evidence = buildSubmissionEvidenceV2(submissionEvidenceInput);
+    assert.equal(Object.keys(evidence).length, 14);
+    assert.equal('aiEvaluationHash' in evidence, false);
+    assert.equal('approvedByWallet' in evidence, false);
+    assert.equal('approvedAt' in evidence, false);
+  });
+
+  it('matches an independently generated canonical SHA-256 vector', async () => {
+    assert.equal(
+      canonicalSubmissionEvidenceJSON(submissionEvidenceInput),
+      '{"acceptanceCriteriaHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","attempt":2,"baseBranch":"main","commitmentHash":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","contributorGithubId":"1002","contributorWallet":"AliceWallet111111111111111111111111111111","mergeCommitSha":"cccccccccccccccccccccccccccccccccccccccc","prNumber":17,"projectId":"prj_1","repositoryFullName":"acme/repo","rewardBps":1000,"schemaVersion":"buildshare-submission-evidence-v2","taskExternalKey":"BUILD-001","taskId":"tsk_1"}',
+    );
+    assert.equal(
+      await computeSubmissionEvidenceHash(submissionEvidenceInput),
+      '14f2864cdffd7ef75b9028a14ddf74ae1ec0210a8a40d1220b4e44cc021350ad',
+    );
+  });
+
+  it('binds the hash to the contribution attempt', async () => {
+    const other = { ...submissionEvidenceInput, attempt: 3 };
+    assert.notEqual(
+      await computeSubmissionEvidenceHash(submissionEvidenceInput),
+      await computeSubmissionEvidenceHash(other),
+    );
+  });
+});
+
+describe('reject reason v1 hashing', () => {
+  it('stamps its schema and matches an independent vector', async () => {
+    assert.equal(
+      buildRejectReasonV1(rejectReasonInput).schemaVersion,
+      REJECT_REASON_SCHEMA_VERSION,
+    );
+    assert.equal(
+      await computeRejectReasonHash(rejectReasonInput),
+      'b9e19ac024b1e9fa8e03d456b7d0bc80fadca537c68f430612d9d41ea25db8d5',
+    );
+  });
+
+  it('binds the reason text', async () => {
+    const other = {
+      ...rejectReasonInput,
+      reason: 'A different rejection reason.',
+    };
+    assert.notEqual(
+      await computeRejectReasonHash(rejectReasonInput),
+      await computeRejectReasonHash(other),
     );
   });
 });

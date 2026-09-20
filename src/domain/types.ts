@@ -170,6 +170,9 @@ export interface Contribution {
   status: ContributionStatus;
   commitmentHash: string;
   evidenceHash: string | null;
+  // Explicitly names the canonical preimage schema. Never infer this from a
+  // 32-byte hash. Pre-field records are migrated by a dated baseline rule.
+  evidenceSchemaVersion: string | null;
   aiScore: number | null;
   aiRecommendation: AIRecommendation | null;
   aiEvaluationHash: string | null;

@@ -611,21 +611,43 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
     }
   };
 
-  const handleReject = () => {
-    // The audit record keeps this reason forever, so it must state the real
-    // cause. The domain requires at least 10 characters and the default text
-    // in the context would claim a quality failure that did not happen.
+  const handleReject = async () => {
     const reason = window.prompt(
-      'Why is this contribution rejected? At least 10 characters.',
+      'Why is this contribution rejected? '
+        + 'At least 10 characters.',
       '',
     );
+
     if (reason === null) return;
-    if (reason.trim().length < 10) {
-      setError('A rejection reason of at least 10 characters is required. Nothing changed.');
+
+    const cleanReason = reason.trim();
+
+    if (cleanReason.length < 10) {
+      setError(
+        'A rejection reason of at least '
+          + '10 characters is required. '
+          + 'Nothing changed.',
+      );
       return;
     }
+
     setRejecting(true);
-    try { rejectContribution(contributionId, reason.trim()); } finally { setRejecting(false); }
+    setError(null);
+
+    try {
+      await rejectContribution(
+        contributionId,
+        cleanReason,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to reject contribution',
+      );
+    } finally {
+      setRejecting(false);
+    }
   };
 
   const scores = evaluation

@@ -1,9 +1,8 @@
 // The only place a contribution is created from the browser.
 //
-// This is a purely local action: the domain builds the contribution and the
-// merged pull request record, and nothing is sent on chain here. The chain
-// only learns about the contribution at approval time, because the evidence
-// hash includes the approver and the approval time (STOP-18).
+// Submission Evidence v2 is sealed before AI review or founder action.
+// In Live mode submit_contribution is confirmed and read back before the
+// local contribution is persisted. Demo mode claims no Solana signature.
 //
 // Six fields are typed by hand. Four of them (number, merge commit, repository
 // and base branch) end up inside the evidence hash and therefore on chain, so
@@ -33,10 +32,11 @@ export function SubmitWorkForm(props: { task: Task }) {
   const [repo, setRepo] = useState(task.repositoryFullName || '');
   const [base, setBase] = useState(task.baseBranch || 'main');
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   if (task.status !== 'CLAIMED') return null;
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setError(null);
@@ -54,8 +54,9 @@ export function SubmitWorkForm(props: { task: Task }) {
       return;
     }
     const now = new Date().toISOString();
+    setSubmitting(true);
     try {
-      submitWork(task.id, {
+      await submitWork(task.id, {
         githubPrId: 'pr-' + String(n),
         githubPrNumber: n,
         repository: repo.trim(),
@@ -75,6 +76,8 @@ export function SubmitWorkForm(props: { task: Task }) {
       setOpen(false);
     } catch (err) {
       setError(messageOf(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -109,12 +112,21 @@ export function SubmitWorkForm(props: { task: Task }) {
       <input className={fieldStyle} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Pull request URL (optional)" />
       <div className="text-xs text-ink-500">
         Number, merge commit, repository and base branch are hashed into the
-        evidence and sent on chain at approval. Line counts and dates are
-        placeholders and stay local.
+        Submission Evidence v2. In Live mode the hash is sent now.
+        Line counts and dates remain local placeholders.
       </div>
       {error === null ? null : <div className="text-xs text-red-600">{error}</div>}
       <div className="flex gap-2">
-        <button type="submit" className="rounded bg-ink-900 px-3 py-1.5 text-sm text-white">Create contribution</button>
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded bg-ink-900 px-3 py-1.5
+            text-sm text-white disabled:opacity-50"
+        >
+          {submitting
+            ? 'Submitting…'
+            : 'Create contribution'}
+        </button>
         <button
           type="button"
           onClick={(e: MouseEvent<HTMLButtonElement>) => {

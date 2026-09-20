@@ -111,9 +111,24 @@ export interface SubmitContributionOnchainInput {
   // The chain requires this wallet to equal task.contributor.
   contributorWallet: string;
   attempt: number;
-  // Hex Evidence v1, computed in the domain layer at approval time. The
-  // provider converts, never computes. STOP-18 variant B.
+  // Canonical evidence hash computed by the domain. New Live submissions
+  // use buildshare-submission-evidence-v2; historical records remain v1.
+  // The provider converts the hash to bytes but never computes it.
   evidenceHash: string;
+}
+
+export interface RejectContributionOnchainInput {
+  projectId: string;
+  taskId: string;
+  contributionId: string;
+  onchainProjectId: number;
+  onchainTaskId: number | null;
+  founderWallet: string;
+  contributorWallet: string;
+  attempt: number;
+  // Both hashes are canonical lowercase SHA-256 hex produced by the domain.
+  evidenceHash: string;
+  rejectReasonHash: string;
 }
 
 export interface CancelTaskOnchainInput {
@@ -157,6 +172,9 @@ export interface SolanaProvider {
   // Creates the Contribution account on chain with a non-zero evidence hash.
   // The contributor signs and pays rent. STOP-18.
   submitContribution(input: SubmitContributionOnchainInput): Promise<SolanaResult>;
+  // Founder-only. Rejects one existing Contribution attempt. The provider
+  // proves Task + Contribution read-back and that Project bytes did not move.
+  rejectContribution(input: RejectContributionOnchainInput): Promise<SolanaResult>;
   // Founder-only. Cancels an Open, Expired or Rejected task. The program
   // releases committed ownership only when the task actually owns a reservation.
   cancelTask(input: CancelTaskOnchainInput): Promise<SolanaResult>;

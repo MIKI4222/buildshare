@@ -4,16 +4,16 @@ Every transaction the BuildShare web client has ever signed. Each one was signed
 Phantom by a human clicking a button in the UI, not by a script and not by the CLI
 keypair. All are finalised on Solana Devnet and can be verified by anyone.
 
-Nine of the eleven program instructions appear here: `initialize_project`,
-`create_task`, `claim_task`, `expire_claim`, `cancel_task`, `submit_contribution`,
-`create_member`, `approve_contribution` and `allocate_ownership`. `update_task` and
-`reject_contribution` have never been sent from a browser and are not claimed below.
+All eleven program instructions now appear here: `initialize_project`,
+`create_task`, `update_task`, `claim_task`, `expire_claim`, `cancel_task`,
+`submit_contribution`, `create_member`, `approve_contribution`,
+`reject_contribution` and `allocate_ownership`.
 
 Program: `6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G`
 Signer: `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` (Phantom, Devnet)
-Dates: 9, 10, 17 and 20 September 2026. Sections 1-4 record the first two days,
-section 5 records the ownership lifecycle on 17 September, and section 6 records an
-independent OPEN -> CANCELLED task on 20 September.
+Dates: 9, 10, 17 and 20 September 2026. Sections 1-4 record the first two
+days, section 5 records the ownership lifecycle, sections 6-7 record cancellation
+and update, and section 8 records Submission Evidence v2 plus browser rejection.
 
 ## 1. initialize_project
 
@@ -334,7 +334,55 @@ became 3500. Audit event `TASK_UPDATED` recorded the fields
 The repeated `create_task` does not increase instruction coverage.
 `update_task` is the tenth distinct instruction proven from the browser.
 
-## 8. What these runs do NOT prove
+## 8. 20 Sep 2026 — Submission Evidence v2 and browser rejection
+
+BUILD-005 (`Evidence v2 rejection browser proof`) exercised the corrected
+chain-first path. The contributor created the on-chain Contribution account at
+submission time with Submission Evidence v2. The founder then rejected that
+same attempt from the browser with a canonical Reject Reason v1 hash.
+
+| Instruction | Signature | Slot | CU | Size |
+| --- | --- | --- | --- | --- |
+| `create_task` | `LhqMXoPDVjrK1afGoZbwb656DsbgSS5EWXxmbFCtFWThUWgd2TbHB5p2bnnXCQXP8RwhoqesaNTs842GQs2DKmJ` | 501,460,759 | 12,889 | 403 B |
+| `claim_task` | `4NG735wc8URVR4hiWHBsujENuU5JFsgCeXEJMyAP5PqL8VDR7HxEUoLuJ5EmE6DruHtA41PaBZ29vD1iABNMoj7y` | 501,461,749 | 5,423 | 328 B |
+| `submit_contribution` | `2R6JFXpWhbW4vVH1tBWLnh6zCvGxQxJiiHairH7uwMZDhUoA4i8r73QGPm3gShjWxhSKfa31j21kDfsngXjTCHrS` | 501,464,206 | 12,563 | 395 B |
+| `reject_contribution` | `4Q9Hpc74LzbLAQ643MvY7VyrM4D6BJCykMuARJ7Ux2dpQgtK99hXCCTWYKBo653y4UwGWTgtpcNGHerwZAfzrDvc` | 501,466,908 | 6,072 | 361 B |
+
+All four transactions were signed in Phantom by
+`53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` and finalised on Devnet.
+
+Derived accounts:
+
+- Task PDA: `6SFBubjFQC5rwHYE4sXcHy5cc2NbBk2jG268CXMYG7no`;
+- Contribution PDA: `3GakL89NLA1vfdYaHcoxMyDkRqnAJY7q82z22E74zyFM`;
+- on-chain task id: `4`;
+- attempt: `1`;
+- reward: `100` bps.
+
+Independent finalised RPC read-back after rejection proved:
+
+- Task status `REJECTED`, contributor `None`, attempt `1`;
+- Task reservation remained committed;
+- Contribution status `REJECTED` and `allocated == false`;
+- `approved_at == 0` and `rejected_at == 1789921597`;
+- Task and Contribution commitment hashes both equal
+  `574a5cbfbaace711c074a99007ebdd976b1959c442446b5ec0c6b5c54db513d8`;
+- Submission Evidence v2 hash equals
+  `d3b3afd654c13f8540cd552d8f11aeef58baff03fa49fc65de078919f6a0f04c`;
+- Reject Reason v1 hash equals
+  `f1d0055a3f57c2adb7ca2a7c2575d01a4a92a059184714f90544d90204c07281`;
+- Project remained at committed `100`, allocated `500`, task count `5` and
+  member count `1`.
+
+The Live provider compared the complete Project account byte array before and
+after `reject_contribution` and returned success only after proving it was
+byte-identical. It also checked the exact Task and Contribution transition
+before app-context persisted the local rejection.
+
+This is the eleventh distinct instruction proven from the browser. The browser
+write surface is now 11/11.
+
+## 9. What these runs do NOT prove
 
 - The AI verification was produced by `DemoAIProvider` / `buildshare-ai-v1`, a
   deterministic heuristic. No model was called, no API key exists in the repository, and
@@ -346,13 +394,11 @@ The repeated `create_task` does not increase instruction coverage.
 - Pull request #1 is a draft and unmerged, so `5d16f135b3b4f7aeab416c7acf169df8af9a6450`
   is its head commit, not a merge commit. It is opened against the `baseline` ref because
   `main` in this repository has no common ancestor with the working branch.
-- One of the eleven instructions has still never been signed from a browser:
-  `reject_contribution`.
-- Browser `reject_contribution` is blocked by the current Evidence v1 lifecycle:
-  `submit_contribution` requires a non-zero evidence hash, but the client fixes that hash
-  only during approval because it contains `approvedByWallet` and `approvedAt`. Inventing
-  a hash or approving only to reject would make the audit false; changing the schema is
-  outside the P1 design freeze.
+- BUILD-005 used pull request #1, which remains open and intentionally draft.
+  The submitted `mergeCommitSha` was GitHub's API merge ref at submission time,
+  `eec1507babf980c920ba0a9725e94c06bb793180`, not a claim that the PR was merged.
+- Submission Evidence v2 proves the browser submission and rejection path. It does
+  not convert the draft pull request into accepted or merged work.
 - Nothing here was executed on Mainnet.
 - The upgrade authority is still a local development keypair.
 - There are no real users and no real contributions. One wallet acted as both founder and

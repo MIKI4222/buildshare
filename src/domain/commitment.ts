@@ -1,9 +1,9 @@
 // The immutable commitment created when a task is CLAIMED.
 //
 // commitmentHash answers: "what exactly did the contributor agree to deliver?"
-// It is computed at CLAIM time and never recomputed. evidenceHash (evidence.ts)
-// answers: "what was actually delivered and approved?" and is computed at
-// approval time. Two hashes, two different questions.
+// It is computed at CLAIM time and never recomputed. Submission Evidence v2
+// answers: "what was delivered?" and is sealed at submission time. Approval
+// and rejection are separate founder attestations.
 
 import { sha256Canonical, sha256Text } from './hash';
 

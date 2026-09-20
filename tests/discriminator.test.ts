@@ -17,6 +17,7 @@ import {
   CREATE_TASK_DISCRIMINATOR,
   EXPIRE_CLAIM_DISCRIMINATOR,
   INITIALIZE_PROJECT_DISCRIMINATOR,
+  REJECT_CONTRIBUTION_DISCRIMINATOR,
   SUBMIT_CONTRIBUTION_DISCRIMINATOR,
   UPDATE_TASK_DISCRIMINATOR,
   encodeClaimTaskData,
@@ -126,6 +127,7 @@ describe('the full set of browser-signed instructions', () => {
     ['submit_contribution', SUBMIT_CONTRIBUTION_DISCRIMINATOR],
     ['create_member', CREATE_MEMBER_DISCRIMINATOR],
     ['approve_contribution', APPROVE_CONTRIBUTION_DISCRIMINATOR],
+    ['reject_contribution', REJECT_CONTRIBUTION_DISCRIMINATOR],
     ['allocate_ownership', ALLOCATE_OWNERSHIP_DISCRIMINATOR],
   ];
 
@@ -136,7 +138,7 @@ describe('the full set of browser-signed instructions', () => {
     });
   }
 
-  it('all ten discriminators are distinct', () => {
+  it('all eleven discriminators are distinct', () => {
     const seen = new Set(pinned.map(([, bytes]) => bytes.join(',')));
     assert.equal(seen.size, pinned.length);
   });

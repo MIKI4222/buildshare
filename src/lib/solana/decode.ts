@@ -210,3 +210,81 @@ export function decodeTaskAccount(data: Uint8Array): OnchainTaskAccount {
     bump,
   };
 }
+
+
+export const CONTRIBUTION_DATA_LEN = 180;
+export const CONTRIBUTION_ACCOUNT_LEN =
+  DISCRIMINATOR_LEN + CONTRIBUTION_DATA_LEN; // 188
+
+// FROZEN discriminants from state/contribution.rs.
+export const CONTRIBUTION_STATUS_NAMES = [
+  'SUBMITTED',
+  'APPROVED',
+  'REJECTED',
+  'SETTLED',
+] as const;
+
+export type OnchainContributionStatus =
+  (typeof CONTRIBUTION_STATUS_NAMES)[number];
+
+export interface OnchainContributionAccount {
+  task: string;
+  contributor: string;
+  attempt: number;
+  status: OnchainContributionStatus;
+  statusCode: number;
+  commitmentHash: string;
+  evidenceHash: string;
+  rejectReasonHash: string;
+  approvedAt: string;
+  rejectedAt: string;
+  allocated: boolean;
+  bump: number;
+}
+
+export function decodeContributionAccount(
+  data: Uint8Array,
+): OnchainContributionAccount {
+  if (data.length !== CONTRIBUTION_ACCOUNT_LEN) {
+    throw new Error(
+      'Refusing to decode a Contribution account of ' + data.length +
+        ' bytes: the frozen layout is ' +
+        CONTRIBUTION_ACCOUNT_LEN + ' bytes.',
+    );
+  }
+  const view = new DataView(
+    data.buffer,
+    data.byteOffset,
+    data.byteLength,
+  );
+
+  const statusCode = data[73];
+  if (statusCode >= CONTRIBUTION_STATUS_NAMES.length) {
+    throw new Error(
+      'Unknown ContributionStatus discriminant: ' + statusCode,
+    );
+  }
+
+  const allocatedByte = data[186];
+  if (allocatedByte !== 0 && allocatedByte !== 1) {
+    throw new Error(
+      'Invalid Borsh bool for Contribution.allocated: ' +
+        allocatedByte,
+    );
+  }
+
+  return {
+    task: base58Encode(data.subarray(8, 40)),
+    contributor: base58Encode(data.subarray(40, 72)),
+    attempt: data[72],
+    status: CONTRIBUTION_STATUS_NAMES[statusCode],
+    statusCode,
+    commitmentHash: toHex(data.subarray(74, 106)),
+    evidenceHash: toHex(data.subarray(106, 138)),
+    rejectReasonHash: toHex(data.subarray(138, 170)),
+    approvedAt: view.getBigInt64(170, true).toString(),
+    rejectedAt: view.getBigInt64(178, true).toString(),
+    allocated: allocatedByte === 1,
+    bump: data[187],
+  };
+}

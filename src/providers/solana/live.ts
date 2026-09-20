@@ -127,6 +127,7 @@ export const CANCEL_TASK_DISCRIMINATOR = [69, 228, 134, 187, 134, 105, 238, 48];
 
 export const SUBMIT_CONTRIBUTION_DISCRIMINATOR = [123, 132, 230, 253, 141, 22, 214, 91];
 export const APPROVE_CONTRIBUTION_DISCRIMINATOR = [202, 161, 21, 234, 88, 85, 197, 7];
+export const REJECT_CONTRIBUTION_DISCRIMINATOR = [119, 66, 240, 138, 76, 79, 25, 155];
 
 // 8 discriminator + 1 attempt + 32 evidence hash = 41 bytes. Read from the
 // IDL, never from memory: args are attempt u8 then evidence_hash [u8; 32].
@@ -144,6 +145,29 @@ export function encodeSubmitContributionData(
   data.set(Uint8Array.from(SUBMIT_CONTRIBUTION_DISCRIMINATOR), 0);
   data[8] = attempt;
   data.set(evidenceHash, 9);
+  return data;
+}
+
+// reject_contribution(reject_reason_hash: [u8; 32]) is exactly 40 bytes.
+export function encodeRejectContributionData(
+  rejectReasonHash: Uint8Array,
+): Uint8Array {
+  if (rejectReasonHash.length !== 32) {
+    throw new RangeError(
+      'reject_reason_hash must be 32 bytes, got: ' +
+        String(rejectReasonHash.length),
+    );
+  }
+  let nonZero = false;
+  for (let i = 0; i < rejectReasonHash.length; i += 1) {
+    if (rejectReasonHash[i] !== 0) nonZero = true;
+  }
+  if (!nonZero) {
+    throw new RangeError('reject_reason_hash must not be the zero hash');
+  }
+  const data = new Uint8Array(40);
+  data.set(Uint8Array.from(REJECT_CONTRIBUTION_DISCRIMINATOR), 0);
+  data.set(rejectReasonHash, 8);
   return data;
 }
 
@@ -948,9 +972,9 @@ export class LiveSolanaProvider implements SolanaProvider {
     return this.buildOnchainResult(taskPda, signature);
   }
 
-  // STOP-18. Creates the Contribution account on chain. The contributor
-  // signs and pays rent. Evidence v1 only exists once the founder approves,
-  // so this is sent at approval time, just before approve + allocate.
+  // Creates the Contribution account on chain. The contributor signs and
+  // pays rent. New Live flows send Submission Evidence v2 here before AI
+  // review or any founder decision.
   async submitContribution(
     input: import('./types').SubmitContributionOnchainInput,
   ): Promise<SolanaResult> {
@@ -1095,6 +1119,287 @@ export class LiveSolanaProvider implements SolanaProvider {
     }
     // buildOnchainResult refuses anything that is not a real base58 signature.
     return this.buildOnchainResult(contributionPda.toBase58(), signature);
+  }
+
+  // Founder-only. Rejects a Contribution that already exists on chain.
+  // The Project account is read before and after and must remain byte-identical.
+  // Local state is changed by app-context only after this read-back succeeds.
+  async rejectContribution(
+    input: import('./types').RejectContributionOnchainInput,
+  ): Promise<SolanaResult> {
+    if (input.onchainTaskId === null) {
+      throw domainError(
+        'TASK_NOT_FOUND',
+        'This task does not exist on chain, so its contribution cannot be rejected. Nothing was sent.',
+        { taskId: input.taskId, contributionId: input.contributionId },
+      );
+    }
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'On-chain rejection needs a browser wallet. Nothing was sent.',
+        { contributionId: input.contributionId, network: this.network },
+      );
+    }
+
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Nothing was sent.',
+        { contributionId: input.contributionId, network: this.network },
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const founderKey = new PublicKey(connected.toString());
+
+    if (founderKey.toBase58() !== input.founderWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'Only the founder wallet can reject this contribution. Connected: ' +
+          founderKey.toBase58() + '. Expected: ' + input.founderWallet +
+          '. Nothing was sent.',
+        { contributionId: input.contributionId },
+      );
+    }
+
+    const program = new PublicKey(this.programId);
+    const projectPda = await this.deriveProjectPda(
+      input.onchainProjectId,
+      input.founderWallet,
+    );
+    const taskPda = await this.deriveTaskPda(
+      projectPda,
+      input.onchainTaskId,
+    );
+    const projectKey = new PublicKey(projectPda);
+    const taskKey = new PublicKey(taskPda);
+    const contributorKey = new PublicKey(input.contributorWallet);
+    const [contributionPda] = PublicKey.findProgramAddressSync(
+      contributionSeeds(
+        taskKey.toBuffer(),
+        contributorKey.toBuffer(),
+        input.attempt,
+      ),
+      program,
+    );
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+
+    const [projectInfo, taskInfo, contributionInfo] = await Promise.all([
+      connection.getAccountInfo(projectKey),
+      connection.getAccountInfo(taskKey),
+      connection.getAccountInfo(contributionPda),
+    ]);
+    if (
+      projectInfo === null ||
+      taskInfo === null ||
+      contributionInfo === null
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The Project, Task or Contribution account is missing. Nothing was sent.',
+        {
+          contributionId: input.contributionId,
+          projectPda,
+          taskPda,
+          contributionPda: contributionPda.toBase58(),
+        },
+      );
+    }
+    if (
+      projectInfo.owner.toBase58() !== this.programId ||
+      taskInfo.owner.toBase58() !== this.programId ||
+      contributionInfo.owner.toBase58() !== this.programId
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'A derived account is not owned by the BuildShare program. Nothing was sent.',
+        { contributionId: input.contributionId },
+      );
+    }
+
+    const decodeModule = await import('../../lib/solana/decode');
+    const beforeProjectBytes = new Uint8Array(projectInfo.data);
+    const beforeProject =
+      decodeModule.decodeProjectAccount(beforeProjectBytes);
+    const beforeTask = decodeModule.decodeTaskAccount(
+      new Uint8Array(taskInfo.data),
+    );
+    const beforeContribution =
+      decodeModule.decodeContributionAccount(
+        new Uint8Array(contributionInfo.data),
+      );
+
+    if (
+      beforeProject.founder !== input.founderWallet ||
+      beforeProject.projectId !== String(input.onchainProjectId) ||
+      beforeTask.project !== projectPda ||
+      beforeTask.taskId !== String(input.onchainTaskId) ||
+      beforeTask.status !== 'SUBMITTED' ||
+      beforeTask.attempt !== input.attempt ||
+      beforeTask.contributor !== input.contributorWallet
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The chain Task is not the submitted attempt requested for rejection. Nothing was sent.',
+        {
+          contributionId: input.contributionId,
+          taskStatus: beforeTask.status,
+          taskAttempt: beforeTask.attempt,
+          taskContributor: beforeTask.contributor,
+        },
+      );
+    }
+
+    if (
+      beforeContribution.task !== taskPda ||
+      beforeContribution.contributor !== input.contributorWallet ||
+      beforeContribution.attempt !== input.attempt ||
+      beforeContribution.status !== 'SUBMITTED' ||
+      beforeContribution.allocated ||
+      beforeContribution.evidenceHash !== input.evidenceHash.toLowerCase()
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The chain Contribution does not match the submitted local attempt. Nothing was sent.',
+        {
+          contributionId: input.contributionId,
+          contributionPda: contributionPda.toBase58(),
+          status: beforeContribution.status,
+          attempt: beforeContribution.attempt,
+          allocated: beforeContribution.allocated,
+        },
+      );
+    }
+
+    const hashModule = await import('../../domain/hash');
+    const reasonBytes = hashModule.hashToBytes(input.rejectReasonHash);
+    const data = encodeRejectContributionData(reasonBytes);
+    const tx = new web3.Transaction().add(
+      new web3.TransactionInstruction({
+        programId: program,
+        // Exact IDL order: founder, project, task, contribution.
+        keys: [
+          { pubkey: founderKey, isSigner: true, isWritable: false },
+          { pubkey: projectKey, isSigner: false, isWritable: false },
+          { pubkey: taskKey, isSigner: false, isWritable: true },
+          {
+            pubkey: contributionPda,
+            isSigner: false,
+            isWritable: true,
+          },
+        ],
+        data,
+      }),
+    );
+
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = founderKey;
+    tx.recentBlockhash = latest.blockhash;
+    const signed = await injected.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(
+      signed.serialize(),
+      {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      },
+    );
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      'confirmed',
+    );
+
+    const [afterProjectInfo, afterTaskInfo, afterContributionInfo] =
+      await Promise.all([
+        connection.getAccountInfo(projectKey),
+        connection.getAccountInfo(taskKey),
+        connection.getAccountInfo(contributionPda),
+      ]);
+    if (
+      afterProjectInfo === null ||
+      afterTaskInfo === null ||
+      afterContributionInfo === null
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The rejection confirmed but an account is missing. Signature: ' +
+          signature + '.',
+        { contributionId: input.contributionId, signature },
+      );
+    }
+
+    const afterProjectBytes = new Uint8Array(afterProjectInfo.data);
+    let projectUnchanged =
+      afterProjectBytes.length === beforeProjectBytes.length;
+    for (
+      let i = 0;
+      i < beforeProjectBytes.length && projectUnchanged;
+      i += 1
+    ) {
+      if (afterProjectBytes[i] !== beforeProjectBytes[i]) {
+        projectUnchanged = false;
+      }
+    }
+
+    const afterTask = decodeModule.decodeTaskAccount(
+      new Uint8Array(afterTaskInfo.data),
+    );
+    const afterContribution =
+      decodeModule.decodeContributionAccount(
+        new Uint8Array(afterContributionInfo.data),
+      );
+
+    if (
+      !projectUnchanged ||
+      afterTask.status !== 'REJECTED' ||
+      afterTask.contributor !== null ||
+      afterTask.attempt !== beforeTask.attempt ||
+      afterTask.rewardBps !== beforeTask.rewardBps ||
+      afterTask.reservedCommitted !== beforeTask.reservedCommitted ||
+      afterTask.commitmentHash !== beforeTask.commitmentHash ||
+      afterContribution.status !== 'REJECTED' ||
+      afterContribution.rejectReasonHash !==
+        input.rejectReasonHash.toLowerCase() ||
+      afterContribution.rejectedAt === '0' ||
+      afterContribution.allocated ||
+      afterContribution.evidenceHash !== beforeContribution.evidenceHash ||
+      afterContribution.commitmentHash !==
+        beforeContribution.commitmentHash
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The rejection confirmed but account read-back differs from reject_contribution semantics. Nothing may be recorded locally. Signature: ' +
+          signature + '.',
+        {
+          contributionId: input.contributionId,
+          signature,
+          projectUnchanged,
+          taskStatus: afterTask.status,
+          taskContributor: afterTask.contributor,
+          reservedCommitted: afterTask.reservedCommitted,
+          contributionStatus: afterContribution.status,
+          rejectReasonHash: afterContribution.rejectReasonHash,
+          rejectedAt: afterContribution.rejectedAt,
+          allocated: afterContribution.allocated,
+        },
+      );
+    }
+
+    return this.buildOnchainResult(
+      contributionPda.toBase58(),
+      signature,
+    );
   }
 
   // Permissionless on chain: caller signs and pays the fee, nothing else.

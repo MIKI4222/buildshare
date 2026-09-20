@@ -6,7 +6,7 @@ completely before touching anything.
 Repository: https://github.com/MIKI4222/buildshare
 Default and working branch: `feature/p0-hardening` (this is intentional; do not
 switch or rename it)
-State of this document: current as of commit `02b07bb`.
+State of this document: current through the 20 Sep 2026 Evidence v2 browser proof. Committed HEAD is `41b6cf6`; the Evidence v2 working tree is not yet committed.
 
 ---
 
@@ -55,19 +55,20 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 278/278, 41 suites |
+| TypeScript tests (`npm test`) | PASS, 295/295, 44 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
 | Full lifecycle executed on Devnet by script | DONE, 2 runs, 24 public signatures |
 | Web client reads live on-chain state | DONE |
-| Web client writes on-chain state | **PARTIAL — ten of eleven instructions have been signed in Phantom and finalised on Devnet:** `initialize_project`, `create_task`, `update_task`, `claim_task`, `expire_claim`, `cancel_task`, `submit_contribution`, `create_member`, `approve_contribution` and `allocate_ownership`. See `DEVNET-PROOF-BROWSER.md`. Only `reject_contribution` remains unproven from the browser. |
+| Web client writes on-chain state | **DONE — all eleven instructions were signed in Phantom and finalised on Devnet.** `reject_contribution`: `4Q9Hpc74...AfzrDvc`, slot 501,466,908, with exact Task and Contribution read-back and a byte-identical Project account. See `DEVNET-PROOF-BROWSER.md`. |
 | Mainnet | NOT DONE |
 | Real users | NONE |
 | `expire_claim` proven | YES — signed in a browser on 17 Sep 2026 after the real 7-day window elapsed: `4NpegSS6...tYgre`, slot 499,867,813 |
 | `update_task` proven | YES — browser-signed on 20 Sep 2026: `3zD2FDS...9Zmzi`, slot 501,281,921; reward 100 -> 200 bps with exact hash and account read-back |
+| `reject_contribution` proven | YES — browser-signed on 20 Sep 2026: `4Q9Hpc74...AfzrDvc`, slot 501,466,908; Task and Contribution became REJECTED, reservation stayed committed and Project bytes did not change |
 
-Total test count across three layers: 338 = 278 TypeScript + 31 Rust + 29 Anchor.
+Total test count across three layers: 355 = 295 TypeScript + 31 Rust + 29 Anchor.
 
 Two defects were found and fixed after the browser claim proof. The allocation
 recipient was read from the user record instead of the task commitment, which
@@ -290,7 +291,7 @@ src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
 src/components/OnchainTaskButton.tsx    one Create on chain button per task row
-tests/                           41 TS suites, 278 tests
+tests/                           44 TS suites, 295 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -360,24 +361,22 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
 transactions: `3bysPZU9...E3vRf` created the Contribution account and
 `5CxUfKm6...9z6mT` carried the other three. `expire_claim` and a second `claim_task`
 were signed the same day. See section 5 of `DEVNET-PROOF-BROWSER.md`.
-4. DONE. `tests/discriminator.test.ts` now pins all ten browser-signed instructions
-and reproduces the exact 74-byte `update_task` payload accepted on Devnet.
-5. PARTIAL. Ten of the eleven instructions are proven from the browser:
-`initialize_project`, `create_task`, `update_task`, `claim_task`, `expire_claim`,
-`cancel_task`, `submit_contribution`, `create_member`, `approve_contribution`
-and `allocate_ownership`.
-The first browser transactions landed on 9 and 10 Sep, the ownership path on
-17 Sep, and `cancel_task` plus `update_task` on 20 Sep. Every one was signed in
-Phantom by `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` and decoded from its
-transaction and account read-back.
-The README row stays PARTIAL because only `reject_contribution` remains
-unproven from a browser.
+4. DONE. `tests/discriminator.test.ts` now pins all eleven
+browser-signed instructions and reproduces the accepted wire formats.
+5. DONE. All eleven instructions are proven from the browser.
+`reject_contribution` was signed on 20 Sep 2026 as
+`4Q9Hpc74...AfzrDvc`, slot 501,466,908. Finalised read-back proved
+Task and Contribution `REJECTED`, contributor cleared, reservation
+preserved, non-zero Evidence v2 and Reject Reason v1 hashes, and
+unchanged Project bytes. See section 8 of `DEVNET-PROOF-BROWSER.md`.
+The README browser-write row is now DONE.
+
 claim_task was signed in a browser on 10 Sep 2026: signature
 5Qcbn8HKbTebS2sSHNtdi4DGEJ1KZqpvcx1K9MqNzKx2k6BpuJY5haNP3J2HDvYyEFn9sdeLNnVes11pHBQdE66E,
 Task PDA HCzZ63bGUF583WVo1yr3pcvYL7kJGNDp831gWH7u2UYV, commitment hash on chain identical
 to local state, committed_bps 0 -> 500. See section 3 of DEVNET-PROOF-BROWSER.md.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
-6. DONE. README test counts are 278 TS / 338 total. These figures come from
+6. DONE. README test counts are 295 TS / 355 total. These figures come from
 the working tree of 20 Sep 2026 and are not yet committed.
 7. Optional: several independent contributor wallets;
    an external accounting review; code-splitting the 624 kB bundle; a dedicated
@@ -392,15 +391,12 @@ was created on chain as task id 2 and cancelled from OPEN:
 `3BGPqdU2...W2TS`, slot 501,268,264. Read-back proved `CANCELLED`, contributor
 `None`, reservation false and unchanged Project accounting.
 
-10. Remaining, in order: resolve the Evidence v1 blocker before attempting browser
-`reject_contribution`; replace `changedFiles: 0`
-and `task/BUILD-002`; use a second independent contributor wallet; and replace
-the deterministic `DemoAIProvider` when that scope is approved.
-
-The rejection blocker is semantic: `submit_contribution` creates the on-chain
-Contribution account and requires a non-zero evidence hash. Evidence v1 includes
-`approvedByWallet` and `approvedAt`, so the client has no honest pre-approval hash.
-Never invent one or call approval only to manufacture a rejectable account.
+10. DONE. Submission Evidence v2 removed the honest
+pre-approval evidence blocker without changing the frozen program.
+The browser created the Contribution account at submission time and
+then rejected it with Reject Reason v1. Remaining product work is a
+second independent contributor wallet, external accounting review,
+real PR data and a non-demo AI provider when approved.
 
 ---
 
@@ -474,83 +470,99 @@ Explorer patterns:
 
 ---
 
-`DEVNET-PROOF-BROWSER.md` — every browser-signed transaction: ten signatures
-across 9, 10, 17 and 20 September 2026, covering ten of eleven instructions.
-It contains account addresses, decoded fields, local-versus-chain parity, the
-OPEN -> CANCELLED proof and explicit limitations including the Evidence v1
-blocker for browser rejection.
+`DEVNET-PROOF-BROWSER.md` — every browser-signed
+transaction: fourteen signatures across 9, 10, 17 and 20 September
+2026, covering all eleven instructions. It contains account addresses,
+decoded fields, local-versus-chain parity, cancellation, update,
+Submission Evidence v2 and the final browser rejection proof.
 
-## 12. Commit history of this phase
+## 12. Committed history before the current working tree
 
-```
-02b07bb        feat: submit the contribution on chain during approval  <- HEAD
-0bdbd1e        feat: send submit_contribution and approve_contribution on chain
-e83e979        fix: take the allocation recipient from the task commitment
-e7391d8        docs: refresh the handoff header and drop stale grant wording
-ac82da0        docs: prove the browser claim on Devnet
-c6c1ad6        feat: claim a task on chain from the task list button
-9611165        feat: wire the claim_task instruction in the live provider
-bbc757f        fix: take the contributor wallet from the session
-715a7b8        docs: prove the browser write path on Devnet
-3aca4a6        feat: create a task on chain from the task list button
-7bcc419  feat: create a task on chain from the browser
-d1b36b2  feat: decode Task accounts, and hand the project over in writing
-835302a  feat: create a project on chain from the browser
-9ff6b2b  feat: record confirmed on-chain ids and guard PDA collisions
-ef7299b  feat: sign allocate_ownership from the browser
-77ff961  npm scripts + README verification section
-84ff3ff  on-chain project panel
-36e2208  project account decoder and live read path
-2ca03d1  staleness banner on the old audit report
-78df62a  Devnet proof #2: reject / re-claim / cancel branches
-edbf504  Devnet deploy + full lifecycle proof #1
-8e6fb87  Anchor integration tests green on a local validator
-c0588f3  anchor build fixed, cargo tests green, IDL matches the freeze
-56f2431  honest README
-b3d0118  P1 client-side alignment with the frozen design
-b5efb49  P0 baseline
+The current Evidence v2 implementation and 11/11 browser proof are still
+uncommitted. The committed branch history immediately below ends at
+`41b6cf6`.
+
+```text
+41b6cf6 feat: prove browser update_task on Devnet
+276da86 feat: prove browser cancel_task on Devnet
+057440a docs: state that the evidence hash pins 5d16f13, not the moving PR head
+326ca0f feat: browser-signed ownership path, expiry and re-claim proven on Devnet
+5d16f13 fix: let the submit form receive clicks, and record the session state
+c0ccfcb feat: create a contribution from the browser
+1fd52ad docs: refresh the handoff and README after STOP-18
+02b07bb feat: submit the contribution on chain during approval
+0bdbd1e feat: send submit_contribution and approve_contribution on chain
+e83e979 fix: take the allocation recipient from the task commitment
+e7391d8 docs: refresh the handoff header and drop stale grant wording
+ac82da0 docs: prove the browser claim on Devnet
+c6c1ad6 feat: claim a task on chain from the task list button
+9611165 feat: wire the claim_task instruction in the live provider
+bbc757f fix: take the contributor wallet from the session, not the user record
+715a7b8 fix: read import.meta.env literally, and prove the browser write path
+3aca4a6 feat: create a task on chain from the task list button
+7bcc419 feat: create a task on chain from the browser
+d1b36b2 feat: decode Task accounts, and hand the project over in writing
+835302a feat: create a project on chain from the browser
 ```
 
 A dropped pre-amend commit `6a2d407` exists in reflog only; ignore it.
 
-## 14. Session handoff: browser contribution path
+## 13. Current session handoff — Evidence v2 browser rejection
 
-State: the browser path is complete through contribution creation and blocked
-one step before approval.
+The client now seals Submission Evidence v2 before AI review or founder
+action. In Live mode `submit_contribution` confirms and passes account
+read-back before the local Contribution is persisted. Approval no longer
+resubmits the Contribution account.
 
-Done and pushed (`c0ccfcb`): STOP-19 adds `submitWork` to the context and
-`SubmitWorkForm`, a six-field form. A contribution now exists in the browser:
-`ctr_mu1eikn7_ehto13`, task `tsk_mtv7gxr5_1owea0`, status SUBMITTED, attempt 1,
-evidence hash still null. Its pull request record carries the four fields that
-reach the chain: number 1 (synthetic, no real PR exists), repository
-MIKI4222/buildshare, base branch feature/p0-hardening, merge commit
-c0ccfcb42008fc9da77c0654d013f513426d3de1. The first three are verifiable on
-GitHub; the number is not, and must be described as synthetic.
+Founder rejection is also chain-first. The client computes Reject Reason v1,
+sends `reject_contribution`, verifies Task and Contribution state, and proves
+the complete Project account byte-identical before changing local state.
+Demo mode remains local and never claims a Solana signature.
 
-Uncommitted in the working tree:
-- `SubmitWorkForm.tsx`: stopPropagation on open, submit, cancel and form clicks.
-- `ProjectDetailPage.tsx`: the task row `<Link>` wrapped in a div so the form
-  sits outside the link. Clicking an input navigated away otherwise.
+Evidence v2 browser proof on 20 Sep 2026:
 
-STOP-20 is designed but not written: no file contains `runReview`. Part A
-adds `runReview(contributionId)` to the context, which calls
-`contributionService.verify` with the task and pull request, hands the result
-to `domain.recordVerification`, and stores the new database. `changedFiles`
-must be an empty array: the pull request record holds a file count, not names.
-Part B is a `canReview` flag and a Run review button before `{canApprove && (`.
+- BUILD-005 on-chain task id `4`;
+- Task PDA `6SFBubjFQC5rwHYE4sXcHy5cc2NbBk2jG268CXMYG7no`;
+- Contribution PDA `3GakL89NLA1vfdYaHcoxMyDkRqnAJY7q82z22E74zyFM`;
+- `create_task`: `LhqMXoPD...2DKmJ`, slot 501,460,759;
+- `claim_task`: `4NG735wc...Moj7y`, slot 501,461,749;
+- `submit_contribution`: `2R6JFXpW...TCHrS`, slot 501,464,206;
+- `reject_contribution`: `4Q9Hpc74...AfzrDvc`, slot 501,466,908.
 
-Blocker and next step: approval requires PENDING_APPROVAL
-(`ProjectDetailPage.tsx:564`), the contribution is SUBMITTED, and nothing in
-the UI performs the SUBMITTED -> AI_REVIEW -> PENDING_APPROVAL move that
-`recordVerification` (`reducers.ts:774`) implements. STOP-20 part B is a
-`canReview` flag plus a Run review button before the `{canApprove && (` block
-at line 733. Then approval sends two signatures: submit_contribution, then
-approve plus allocate.
+Finalised read-back:
 
-Environment: dev server must run on port 5174. Browser state lives in that
-origin's localStorage; port 5173 shows an empty demo database. Phantom
-53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG, devnet, about 10 SOL. The claim
-was signed on 10 September and the seven-day window closes around 17 September.
+- Task `REJECTED`, contributor `None`, attempt `1`;
+- reservation remained committed;
+- Contribution `REJECTED`, `allocated == false`;
+- `approved_at == 0`, `rejected_at != 0`;
+- commitment hash matched in Task and Contribution;
+- Evidence v2 hash was
+  `d3b3afd654c13f8540cd552d8f11aeef58baff03fa49fc65de078919f6a0f04c`;
+- Reject Reason v1 hash was
+  `f1d0055a3f57c2adb7ca2a7c2575d01a4a92a059184714f90544d90204c07281`;
+- Project bytes were unchanged by rejection.
 
-Unchanged: three of eleven instructions proven from a browser. Nothing new
-reached Devnet this session.
+The browser instruction surface is now 11/11. The discriminator test pins all
+eleven instructions.
+
+Current gates:
+
+- TypeScript `295/295`, 44 suites;
+- Rust `31/31`;
+- Anchor integration `29/29` on a local validator;
+- `npx tsc --noEmit`, build and `git diff --check` all pass.
+
+Pull request #1 remains open and intentionally draft. BUILD-005 used the
+GitHub API merge ref present at submission time; it did not claim that the PR
+was merged.
+
+The dev server used port 5174 and is now stopped. No Mainnet transaction was
+sent. `.agents/` and `skills-lock.json` are unrelated untracked files and must
+not be included.
+
+Next actions require separate approval:
+
+1. Commit the intended Evidence v2 code, tests and proof documents.
+2. Push that commit only after a separate GO.
+3. Refresh the dated grant package from the committed files.
+4. Keep PR #1 draft unless separately approved.
