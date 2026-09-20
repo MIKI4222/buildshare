@@ -6,7 +6,7 @@ completely before touching anything.
 Repository: https://github.com/MIKI4222/buildshare
 Default and working branch: `feature/p0-hardening` (this is intentional; do not
 switch or rename it)
-State of this document: current through the 20 Sep 2026 Evidence v2 browser proof. Committed HEAD is `41b6cf6`; the Evidence v2 working tree is not yet committed.
+State of this document: current through the 20 Sep 2026 Evidence v2 browser proof. The implementation and proof were committed locally as `3a45627` and are not yet pushed.
 
 ---
 
@@ -476,13 +476,13 @@ transaction: fourteen signatures across 9, 10, 17 and 20 September
 decoded fields, local-versus-chain parity, cancellation, update,
 Submission Evidence v2 and the final browser rejection proof.
 
-## 12. Committed history before the current working tree
+## 12. Committed history through Evidence v2
 
-The current Evidence v2 implementation and 11/11 browser proof are still
-uncommitted. The committed branch history immediately below ends at
-`41b6cf6`.
+The Evidence v2 implementation and 11/11 browser proof were committed
+locally as `3a45627`. The earlier branch history follows below.
 
 ```text
+3a45627 feat: prove browser rejection with Evidence v2
 41b6cf6 feat: prove browser update_task on Devnet
 276da86 feat: prove browser cancel_task on Devnet
 057440a docs: state that the evidence hash pins 5d16f13, not the moving PR head
@@ -562,7 +562,6 @@ not be included.
 
 Next actions require separate approval:
 
-1. Commit the intended Evidence v2 code, tests and proof documents.
-2. Push that commit only after a separate GO.
-3. Refresh the dated grant package from the committed files.
-4. Keep PR #1 draft unless separately approved.
+1. Push the local Evidence v2 and handoff commits only after a separate GO.
+2. Refresh the dated grant package from the committed files.
+3. Keep PR #1 draft unless separately approved.
