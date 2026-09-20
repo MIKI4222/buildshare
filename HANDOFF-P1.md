@@ -6,7 +6,7 @@ completely before touching anything.
 Repository: https://github.com/MIKI4222/buildshare
 Default and working branch: `feature/p0-hardening` (this is intentional; do not
 switch or rename it)
-State of this document: current through the 20 Sep 2026 Evidence v2 browser proof. The implementation and proof were committed locally as `3a45627` and are not yet pushed.
+State of this document: current through the 20 Sep 2026 Evidence v2 browser proof. The implementation and proof are recorded in commit `3a45627`.
 
 ---
 
@@ -478,8 +478,8 @@ Submission Evidence v2 and the final browser rejection proof.
 
 ## 12. Committed history through Evidence v2
 
-The Evidence v2 implementation and 11/11 browser proof were committed
-locally as `3a45627`. The earlier branch history follows below.
+The Evidence v2 implementation and 11/11 browser proof are recorded
+in commit `3a45627`. The earlier branch history follows below.
 
 ```text
 3a45627 feat: prove browser rejection with Evidence v2
@@ -560,8 +560,11 @@ The dev server used port 5174 and is now stopped. No Mainnet transaction was
 sent. `.agents/` and `skills-lock.json` are unrelated untracked files and must
 not be included.
 
-Next actions require separate approval:
+Next product actions:
 
-1. Push the local Evidence v2 and handoff commits only after a separate GO.
-2. Refresh the dated grant package from the committed files.
-3. Keep PR #1 draft unless separately approved.
+1. Keep PR #1 draft unless separately approved.
+2. Run the lifecycle with an independent contributor wallet.
+3. Obtain an external accounting and security review.
+4. Publish a hosted demo and replace the deterministic Demo AI provider.
+
+The dated grant package is regenerated separately from committed repository files.
