@@ -54,6 +54,7 @@ export const INITIALIZE_PROJECT_DISCRIMINATOR = [69, 126, 215, 37, 20, 60, 73, 2
 // create_task(task_id: u64, reward_bps: u16, acceptance_criteria_hash: [u8;32],
 // repo_ref_hash: [u8;32]). Argument order copied from the IDL, not guessed.
 export const CREATE_TASK_DISCRIMINATOR = [194, 80, 6, 180, 232, 127, 48, 171];
+export const UPDATE_TASK_DISCRIMINATOR = [100, 51, 124, 168, 211, 208, 42, 228];
 
 // 8 discriminator + 8 id + 2 reward + 32 + 32 = 82 bytes.
 export function encodeCreateTaskData(
@@ -76,6 +77,30 @@ export function encodeCreateTaskData(
   data.set(u16le(rewardBps), 16);
   data.set(acceptanceCriteriaHash, 18);
   data.set(repoRefHash, 50);
+  return data;
+}
+
+// update_task(reward_bps: u16, acceptance_criteria_hash: [u8; 32],
+// repo_ref_hash: [u8; 32]) is exactly 74 bytes in IDL order.
+export function encodeUpdateTaskData(
+  rewardBps: number,
+  acceptanceCriteriaHash: Uint8Array,
+  repoRefHash: Uint8Array,
+): Uint8Array {
+  if (acceptanceCriteriaHash.length !== 32) {
+    throw new RangeError(
+      'acceptance_criteria_hash must be 32 bytes, got: ' +
+        String(acceptanceCriteriaHash.length),
+    );
+  }
+  if (repoRefHash.length !== 32) {
+    throw new RangeError('repo_ref_hash must be 32 bytes, got: ' + String(repoRefHash.length));
+  }
+  const data = new Uint8Array(74);
+  data.set(Uint8Array.from(UPDATE_TASK_DISCRIMINATOR), 0);
+  data.set(u16le(rewardBps), 8);
+  data.set(acceptanceCriteriaHash, 10);
+  data.set(repoRefHash, 42);
   return data;
 }
 
@@ -737,6 +762,189 @@ export class LiveSolanaProvider implements SolanaProvider {
     }
 
     // buildOnchainResult refuses anything that is not a real base58 signature.
+    return this.buildOnchainResult(taskPda, signature);
+  }
+
+  // Founder-only update of an OPEN task. Read-before-write catches frozen or
+  // mismatched accounts before Phantom, and read-back proves all three fields.
+  async updateTask(
+    input: import('./types').UpdateTaskOnchainInput,
+  ): Promise<SolanaResult> {
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'On-chain task updates need a browser wallet. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const founderKey = new PublicKey(connected.toString());
+
+    if (founderKey.toBase58() !== input.founderWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'Only the founder wallet can update this task. Connected: ' +
+          founderKey.toBase58() + '. Expected: ' + input.founderWallet + '. Nothing was sent.',
+        { taskId: input.taskId },
+      );
+    }
+
+    const projectPda = await this.deriveProjectPda(
+      input.onchainProjectId,
+      input.founderWallet,
+    );
+    const taskPda = await this.deriveTaskPda(projectPda, input.onchainTaskId);
+    const program = new PublicKey(this.programId);
+    const projectKey = new PublicKey(projectPda);
+    const taskKey = new PublicKey(taskPda);
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+
+    const [projectInfo, taskInfo] = await Promise.all([
+      connection.getAccountInfo(projectKey),
+      connection.getAccountInfo(taskKey),
+    ]);
+    if (projectInfo === null || taskInfo === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The Project or Task account is missing. Nothing was sent.',
+        { taskId: input.taskId, projectPda, taskPda },
+      );
+    }
+    if (
+      projectInfo.owner.toBase58() !== this.programId ||
+      taskInfo.owner.toBase58() !== this.programId
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The derived Project or Task is not owned by BuildShare. Nothing was sent.',
+        { taskId: input.taskId, projectPda, taskPda },
+      );
+    }
+
+    const decodeModule = await import('../../lib/solana/decode');
+    const project = decodeModule.decodeProjectAccount(new Uint8Array(projectInfo.data));
+    const before = decodeModule.decodeTaskAccount(new Uint8Array(taskInfo.data));
+
+    if (
+      project.founder !== input.founderWallet ||
+      project.projectId !== String(input.onchainProjectId) ||
+      before.project !== projectPda ||
+      before.taskId !== String(input.onchainTaskId)
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The derived accounts do not match the requested project and task. Nothing was sent.',
+        { taskId: input.taskId, projectPda, taskPda },
+      );
+    }
+    if (before.status !== 'OPEN' || before.reservedCommitted) {
+      throw domainError(
+        'IMMUTABLE_AFTER_CLAIM',
+        'The task is ' + before.status +
+          ' or already reserved on chain. update_task is allowed only while OPEN and unreserved. Nothing was sent.',
+        { taskId: input.taskId, status: before.status, reserved: before.reservedCommitted },
+      );
+    }
+    if (
+      !Number.isInteger(input.rewardBps) ||
+      input.rewardBps <= 0 ||
+      input.rewardBps > project.devPoolBps
+    ) {
+      throw domainError(
+        'INVALID_BPS',
+        'Reward must be a positive integer within the development pool. Nothing was sent.',
+        { taskId: input.taskId, rewardBps: input.rewardBps },
+      );
+    }
+
+    const hashModule = await import('../../domain/hash');
+    const acceptanceBytes = hashModule.hashToBytes(input.acceptanceCriteriaHash);
+    const repoBytes = hashModule.hashToBytes(input.repoRefHash);
+    const allZero = (bytes: Uint8Array) => bytes.every((value) => value === 0);
+    if (allZero(acceptanceBytes)) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'Acceptance criteria hash cannot be zero. Nothing was sent.',
+        { taskId: input.taskId },
+      );
+    }
+    const data = encodeUpdateTaskData(input.rewardBps, acceptanceBytes, repoBytes);
+
+    const tx = new web3.Transaction().add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: founderKey, isSigner: true, isWritable: true },
+          { pubkey: projectKey, isSigner: false, isWritable: false },
+          { pubkey: taskKey, isSigner: false, isWritable: true },
+        ],
+        data,
+      }),
+    );
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = founderKey;
+    tx.recentBlockhash = latest.blockhash;
+
+    const signed = await injected.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      'confirmed',
+    );
+
+    const afterInfo = await connection.getAccountInfo(taskKey);
+    if (afterInfo === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The update confirmed but the Task account is missing. Signature: ' + signature + '.',
+        { taskId: input.taskId, signature },
+      );
+    }
+    const after = decodeModule.decodeTaskAccount(new Uint8Array(afterInfo.data));
+    if (
+      after.status !== 'OPEN' ||
+      after.reservedCommitted ||
+      after.rewardBps !== input.rewardBps ||
+      after.acceptanceCriteriaHash !== input.acceptanceCriteriaHash.toLowerCase() ||
+      after.repoRefHash !== input.repoRefHash.toLowerCase()
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The update confirmed but Task read-back differs from the requested values. ' +
+          'Nothing may be recorded locally. Signature: ' + signature + '.',
+        {
+          taskId: input.taskId,
+          signature,
+          status: after.status,
+          rewardBps: after.rewardBps,
+          acceptanceCriteriaHash: after.acceptanceCriteriaHash,
+          repoRefHash: after.repoRefHash,
+        },
+      );
+    }
+
     return this.buildOnchainResult(taskPda, signature);
   }
 

@@ -20,7 +20,7 @@ transaction signatures. The table below is the honest state of verification as o
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| Off-chain domain model, ownership accounting, state machines | **PASS** | `npm test` — 274 tests, 40 suites, 0 failures |
+| Off-chain domain model, ownership accounting, state machines | **PASS** | `npm test` — 278 tests, 41 suites, 0 failures |
 | TypeScript typecheck | **PASS** | `npx tsc --noEmit -p tsconfig.app.json` — exit 0 |
 | PDA seed parity between Rust and TypeScript | **PASS** | `tests/pda.test.ts` |
 | Lifecycle parity between Rust handlers and off-chain reducers | **PASS** | `tests/lifecycle-parity.test.ts` |
@@ -34,10 +34,10 @@ transaction signatures. The table below is the honest state of verification as o
 | Devnet lifecycle, ownership settled | **DONE** | 8 signatures in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md) |
 | Devnet rejection, retry and cancellation | **DONE** | 16 on-chain assertions in [`DEVNET-PROOF-BRANCHES.md`](./DEVNET-PROOF-BRANCHES.md) |
 | Web client reads live on-chain state | **DONE** | the project page decodes the Project account straight from Devnet |
-| Web client writes on-chain state | **PARTIAL** | Nine of eleven instructions are browser-proven: `initialize_project`, `create_task`, `claim_task`, `expire_claim`, `cancel_task`, `submit_contribution`, `create_member`, `approve_contribution` and `allocate_ownership`. The founder signed `cancel_task` on 20 Sep 2026 after the browser created an OPEN 100-bps task; see [`DEVNET-PROOF-BROWSER.md`](DEVNET-PROOF-BROWSER.md). `update_task` and `reject_contribution` remain unproven from the browser. |
+| Web client writes on-chain state | **PARTIAL** | Ten of eleven instructions are browser-proven: `initialize_project`, `create_task`, `update_task`, `claim_task`, `expire_claim`, `cancel_task`, `submit_contribution`, `create_member`, `approve_contribution` and `allocate_ownership`. The founder signed `cancel_task` and `update_task` on 20 Sep 2026 with confirmed account read-back; see [`DEVNET-PROOF-BROWSER.md`](DEVNET-PROOF-BROWSER.md). Only `reject_contribution` remains unproven from the browser. |
 | Mainnet | **NOT DONE** | out of scope for P1 |
 
-334 tests pass across three independent layers: 274 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
+338 tests pass across three independent layers: 278 TypeScript domain tests, 31 Rust unit tests and 29 Anchor
 integration tests executed against a validator with the program actually deployed. The integration tests run on a
 local validator rather than Devnet, because each of them funds fresh participants by airdrop and the public faucet
 is rate limited. The Devnet evidence is the lifecycle run recorded in [`DEVNET-PROOF.md`](./DEVNET-PROOF.md).
@@ -133,7 +133,7 @@ browser requires wallet signing, which is not implemented, and the Live provider
 
 ```bash
 npm install
-npm test              # 274 TypeScript tests, 40 suites
+npm test              # 278 TypeScript tests, 41 suites
 npm run test:rust     # 31 Rust unit tests, needs cargo
 npm run test:anchor   # 29 integration tests, needs a running validator
 npm run dev     # starts the app in demo mode
@@ -177,7 +177,7 @@ P1 STEP 5 is complete. Written code became verifiable execution:
 
 Next, and these are **targets, not achievements**:
 
-1. Sign the two remaining instructions from the browser. Nine of eleven are proven; `update_task` is the next implementation target, while `reject_contribution` is blocked by the current Evidence v1 lifecycle.
+1. Resolve the one remaining browser instruction. Ten of eleven are proven; `reject_contribution` is blocked by the current Evidence v1 lifecycle.
 2. Resolve a versioned evidence design for an honest pre-approval `submit_contribution` / `reject_contribution` path without rewriting frozen P1 history.
 3. Run the lifecycle with several independent contributor wallets in one project.
 4. Have the on-chain accounting reviewed by someone other than its author.

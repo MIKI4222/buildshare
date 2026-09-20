@@ -17,6 +17,7 @@ import { OnchainTaskButton } from '../components/OnchainTaskButton';
 import { OnchainClaimButton } from '../components/OnchainClaimButton';
 import { OnchainExpireClaimButton } from '../components/OnchainExpireClaimButton';
 import { OnchainCancelTaskButton } from '../components/OnchainCancelTaskButton';
+import { OnchainUpdateTaskButton } from '../components/OnchainUpdateTaskButton';
 import { SubmitWorkForm } from '../components/SubmitWorkForm';
 import { TaskStatusBadge, ContributionStatusBadge, AIRecommendationBadge } from '../components/StatusBadges';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -376,6 +377,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
           </div>
           <h1 className="text-xl font-bold text-ink-900">{task.title}</h1>
         </div>
+        <OnchainUpdateTaskButton project={project} task={task} />
         {(task.status === 'OPEN' || task.status === 'REJECTED') && (
           <Button variant="secondary" onClick={() => setClaimModal(true)} leftIcon={<GitBranch className="h-4 w-4" />}>{task.status === 'REJECTED' ? 'Re-claim Task' : 'Claim Task'}</Button>
         )}

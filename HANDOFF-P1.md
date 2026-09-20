@@ -55,19 +55,19 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 274/274, 40 suites |
+| TypeScript tests (`npm test`) | PASS, 278/278, 41 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
 | Full lifecycle executed on Devnet by script | DONE, 2 runs, 24 public signatures |
 | Web client reads live on-chain state | DONE |
-| Web client writes on-chain state | **PARTIAL — nine of eleven instructions have been signed in Phantom and finalised on Devnet:** `initialize_project`, `create_task`, `claim_task`, `expire_claim`, `cancel_task`, `submit_contribution`, `create_member`, `approve_contribution` and `allocate_ownership`. See `DEVNET-PROOF-BROWSER.md`. `update_task` and `reject_contribution` remain unproven from the browser. |
+| Web client writes on-chain state | **PARTIAL — ten of eleven instructions have been signed in Phantom and finalised on Devnet:** `initialize_project`, `create_task`, `update_task`, `claim_task`, `expire_claim`, `cancel_task`, `submit_contribution`, `create_member`, `approve_contribution` and `allocate_ownership`. See `DEVNET-PROOF-BROWSER.md`. Only `reject_contribution` remains unproven from the browser. |
 | Mainnet | NOT DONE |
 | Real users | NONE |
 | `expire_claim` proven | YES — signed in a browser on 17 Sep 2026 after the real 7-day window elapsed: `4NpegSS6...tYgre`, slot 499,867,813 |
-| `update_task` proven | Localnet only |
+| `update_task` proven | YES — browser-signed on 20 Sep 2026: `3zD2FDS...9Zmzi`, slot 501,281,921; reward 100 -> 200 bps with exact hash and account read-back |
 
-Total test count across three layers: 334 = 274 TypeScript + 31 Rust + 29 Anchor.
+Total test count across three layers: 338 = 278 TypeScript + 31 Rust + 29 Anchor.
 
 Two defects were found and fixed after the browser claim proof. The allocation
 recipient was read from the user record instead of the task commitment, which
@@ -290,7 +290,7 @@ src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
 src/components/OnchainTaskButton.tsx    one Create on chain button per task row
-tests/                           40 TS suites, 274 tests
+tests/                           41 TS suites, 278 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -360,26 +360,26 @@ recorded as a confirmed chain fact, instead of returning a plausible fake.
 transactions: `3bysPZU9...E3vRf` created the Contribution account and
 `5CxUfKm6...9z6mT` carried the other three. `expire_claim` and a second `claim_task`
 were signed the same day. See section 5 of `DEVNET-PROOF-BROWSER.md`.
-4. DONE. `tests/discriminator.test.ts` now pins all nine browser-signed instructions
-and proves that `cancel_task` sends only its eight-byte discriminator.
-5. PARTIAL. Nine of the eleven instructions are proven from the browser:
-`initialize_project`, `create_task`, `claim_task`, `expire_claim`, `cancel_task`,
-`submit_contribution`, `create_member`, `approve_contribution` and
-`allocate_ownership`.
+4. DONE. `tests/discriminator.test.ts` now pins all ten browser-signed instructions
+and reproduces the exact 74-byte `update_task` payload accepted on Devnet.
+5. PARTIAL. Ten of the eleven instructions are proven from the browser:
+`initialize_project`, `create_task`, `update_task`, `claim_task`, `expire_claim`,
+`cancel_task`, `submit_contribution`, `create_member`, `approve_contribution`
+and `allocate_ownership`.
 The first browser transactions landed on 9 and 10 Sep, the ownership path on
-17 Sep, and `cancel_task` on 20 Sep. Every one was signed in Phantom by
-`53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` and decoded from its transaction
-and account read-back.
-The README row stays PARTIAL because `update_task` and `reject_contribution`
-remain unproven from a browser.
+17 Sep, and `cancel_task` plus `update_task` on 20 Sep. Every one was signed in
+Phantom by `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` and decoded from its
+transaction and account read-back.
+The README row stays PARTIAL because only `reject_contribution` remains
+unproven from a browser.
 claim_task was signed in a browser on 10 Sep 2026: signature
 5Qcbn8HKbTebS2sSHNtdi4DGEJ1KZqpvcx1K9MqNzKx2k6BpuJY5haNP3J2HDvYyEFn9sdeLNnVes11pHBQdE66E,
 Task PDA HCzZ63bGUF583WVo1yr3pcvYL7kJGNDp831gWH7u2UYV, commitment hash on chain identical
 to local state, committed_bps 0 -> 500. See section 3 of DEVNET-PROOF-BROWSER.md.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
-6. DONE. README test counts are 274 TS / 334 total. These figures come from
+6. DONE. README test counts are 278 TS / 338 total. These figures come from
 the working tree of 20 Sep 2026 and are not yet committed.
-7. Optional: `update_task` on Devnet; several independent contributor wallets;
+7. Optional: several independent contributor wallets;
    an external accounting review; code-splitting the 624 kB bundle; a dedicated
    RPC endpoint; silencing the ambiguous glob re-export warning in
    `programs/buildshare/src/instructions/mod.rs`.
@@ -392,8 +392,8 @@ was created on chain as task id 2 and cancelled from OPEN:
 `3BGPqdU2...W2TS`, slot 501,268,264. Read-back proved `CANCELLED`, contributor
 `None`, reservation false and unchanged Project accounting.
 
-10. Remaining, in order: implement and prove `update_task`; resolve the Evidence v1
-blocker before attempting browser `reject_contribution`; replace `changedFiles: 0`
+10. Remaining, in order: resolve the Evidence v1 blocker before attempting browser
+`reject_contribution`; replace `changedFiles: 0`
 and `task/BUILD-002`; use a second independent contributor wallet; and replace
 the deterministic `DemoAIProvider` when that scope is approved.
 
@@ -475,7 +475,7 @@ Explorer patterns:
 ---
 
 `DEVNET-PROOF-BROWSER.md` — every browser-signed transaction: ten signatures
-across 9, 10, 17 and 20 September 2026, covering nine of eleven instructions.
+across 9, 10, 17 and 20 September 2026, covering ten of eleven instructions.
 It contains account addresses, decoded fields, local-versus-chain parity, the
 OPEN -> CANCELLED proof and explicit limitations including the Evidence v1
 blocker for browser rejection.

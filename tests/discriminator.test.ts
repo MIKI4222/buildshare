@@ -18,7 +18,9 @@ import {
   EXPIRE_CLAIM_DISCRIMINATOR,
   INITIALIZE_PROJECT_DISCRIMINATOR,
   SUBMIT_CONTRIBUTION_DISCRIMINATOR,
+  UPDATE_TASK_DISCRIMINATOR,
   encodeClaimTaskData,
+  encodeUpdateTaskData,
   encodeSubmitContributionData,
   encodeInitializeProjectData,
 } from '../src/providers/solana/live';
@@ -117,6 +119,7 @@ describe('the full set of browser-signed instructions', () => {
   const pinned: Array<[string, number[]]> = [
     ['initialize_project', INITIALIZE_PROJECT_DISCRIMINATOR],
     ['create_task', CREATE_TASK_DISCRIMINATOR],
+    ['update_task', UPDATE_TASK_DISCRIMINATOR],
     ['cancel_task', CANCEL_TASK_DISCRIMINATOR],
     ['claim_task', CLAIM_TASK_DISCRIMINATOR],
     ['expire_claim', EXPIRE_CLAIM_DISCRIMINATOR],
@@ -133,7 +136,7 @@ describe('the full set of browser-signed instructions', () => {
     });
   }
 
-  it('all nine discriminators are distinct', () => {
+  it('all ten discriminators are distinct', () => {
     const seen = new Set(pinned.map(([, bytes]) => bytes.join(',')));
     assert.equal(seen.size, pinned.length);
   });
@@ -177,5 +180,40 @@ describe('cancel_task browser wire format', () => {
     const data = new Uint8Array(CANCEL_TASK_DISCRIMINATOR);
     assert.equal(data.length, 8);
     assert.deepEqual(Array.from(data), CANCEL_TASK_DISCRIMINATOR);
+  });
+});
+
+
+describe('update_task browser wire format', () => {
+  it('matches sha256 of its frozen Anchor global name', () => {
+    assert.deepEqual(UPDATE_TASK_DISCRIMINATOR, anchorDiscriminator('update_task'));
+  });
+
+  it('reproduces the 74 bytes Devnet accepted in 3zD2FDS', () => {
+    const toBytes = (hex: string) =>
+      Uint8Array.from((hex.match(/../g) as string[]).map((b) => parseInt(b, 16)));
+    const acceptance = toBytes(
+      'fba1fcadd6eaf880d0e227f3b4363d44f26b773a12de99039bfe2d9d9f0a6eba',
+    );
+    const repo = toBytes(
+      '003e3cf1499ded4349abff49752a6f4a1892bf7d493b68e9578e141a957f10b2',
+    );
+    const data = encodeUpdateTaskData(200, acceptance, repo);
+    assert.equal(data.length, 74);
+    assert.deepEqual(Array.from(data.subarray(0, 8)), UPDATE_TASK_DISCRIMINATOR);
+    assert.deepEqual(Array.from(data.subarray(8, 10)), [200, 0]);
+    assert.deepEqual(Array.from(data.subarray(10, 42)), Array.from(acceptance));
+    assert.deepEqual(Array.from(data.subarray(42, 74)), Array.from(repo));
+  });
+
+  it('refuses hashes that are not exactly 32 bytes', () => {
+    assert.throws(
+      () => encodeUpdateTaskData(200, new Uint8Array(31), new Uint8Array(32)),
+      RangeError,
+    );
+    assert.throws(
+      () => encodeUpdateTaskData(200, new Uint8Array(32), new Uint8Array(33)),
+      RangeError,
+    );
   });
 });

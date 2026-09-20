@@ -279,7 +279,62 @@ recorded `releasedBps: 100`.
 The repeated `create_task` does not increase instruction coverage. `cancel_task` is the
 ninth distinct instruction proven from the browser.
 
-## 7. What these runs do NOT prove
+## 7. 20 Sep 2026 — founder update of an OPEN task
+
+BUILD-004 (`Update path browser proof`) was created locally with a 100 bps
+reward and then created on Devnet as task id 3. The same browser session
+updated it while it was still OPEN.
+
+| Instruction | Signature | Slot | CU | Size |
+| --- | --- | --- | --- | --- |
+| `create_task` | `37JPct1ezKTHrtrFX3ByHmz4iG1ZJbAgiKpyHBcFiDvqQwRrnGFugeMimjQEzAh8rAv5hq5fMYhHvrxGqCouxpPL` | 501,280,012 | 12,889 | 403 B |
+| `update_task` | `3zD2FDSNwreXkEWPk2bRm4AEFsuMdrTqQ7EKTRqFzRPVSsue9BdixNYy7mQAdJK4Fr4D7NaWTe9m85yu44y9Zmzi` | 501,281,921 | 3,755 | 362 B |
+
+Both transactions were signed in Phantom by
+`53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` and finalised on Devnet.
+`create_task` created Task PDA
+`14aowUvvmVUNgbfsKzRNfrmQw3zaPkCmowrBfSzc285z` with task id 3.
+
+Before `update_task`:
+
+- status was `0 OPEN`;
+- reward was 100 bps;
+- attempt was 0 and contributor was `None`;
+- `reserved_committed` was false;
+- acceptance hash was
+  `0358521641d39f5c816afd66e0cb41e9c7bd422a925023bc54f92340a7938419`;
+- repository hash was
+  `003e3cf1499ded4349abff49752a6f4a1892bf7d493b68e9578e141a957f10b2`.
+
+The update payload was exactly 74 bytes. It began with discriminator
+`[100,51,124,168,211,208,42,228]`, followed by little-endian reward
+`[200,0]`, the 32-byte acceptance hash and the 32-byte repository hash.
+The program log named `Instruction: UpdateTask`.
+
+Read-back after finalisation proved:
+
+- reward moved `100 -> 200` bps;
+- acceptance hash became
+  `fba1fcadd6eaf880d0e227f3b4363d44f26b773a12de99039bfe2d9d9f0a6eba`,
+  exactly the client hash of the submitted Version 2 criteria;
+- status remained `OPEN`;
+- attempt, contributor, reservation, commitment hash and repository hash
+  were unchanged;
+- every other Task account byte was unchanged;
+- the Project account was byte-identical before and after:
+  committed 0, allocated 500, task count 4 and member count 1.
+
+Only after this account read-back did app-context persist the local update.
+BUILD-004 remained `OPEN`, moved from 100 to 200 bps and stored the exact
+Version 2 criteria. Local project accounting moved committed ownership from
+1900 to 2000 bps, while allocated ownership stayed 500 and remaining ownership
+became 3500. Audit event `TASK_UPDATED` recorded the fields
+`rewardBps,acceptanceCriteria` at `2026-09-20T07:56:23.420Z`.
+
+The repeated `create_task` does not increase instruction coverage.
+`update_task` is the tenth distinct instruction proven from the browser.
+
+## 8. What these runs do NOT prove
 
 - The AI verification was produced by `DemoAIProvider` / `buildshare-ai-v1`, a
   deterministic heuristic. No model was called, no API key exists in the repository, and
@@ -291,8 +346,8 @@ ninth distinct instruction proven from the browser.
 - Pull request #1 is a draft and unmerged, so `5d16f135b3b4f7aeab416c7acf169df8af9a6450`
   is its head commit, not a merge commit. It is opened against the `baseline` ref because
   `main` in this repository has no common ancestor with the working branch.
-- Two of the eleven instructions have still never been signed from a browser:
-  `update_task` and `reject_contribution`.
+- One of the eleven instructions has still never been signed from a browser:
+  `reject_contribution`.
 - Browser `reject_contribution` is blocked by the current Evidence v1 lifecycle:
   `submit_contribution` requires a non-zero evidence hash, but the client fixes that hash
   only during approval because it contains `approvedByWallet` and `approvedAt`. Inventing

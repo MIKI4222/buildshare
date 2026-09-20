@@ -73,6 +73,17 @@ export interface CreateTaskOnchainInput {
   repoRefHash: string;
 }
 
+export interface UpdateTaskOnchainInput {
+  projectId: string;
+  taskId: string;
+  onchainProjectId: number;
+  onchainTaskId: number;
+  founderWallet: string;
+  rewardBps: number;
+  acceptanceCriteriaHash: string;
+  repoRefHash: string;
+}
+
 export interface ClaimTaskOnchainInput {
   projectId: string;
   taskId: string;
@@ -139,6 +150,8 @@ export interface SolanaProvider {
   // Creates the Task account on chain. Only the live provider can do this;
   // the demo provider refuses instead of inventing a signature.
   createTask(input: CreateTaskOnchainInput): Promise<SolanaResult>;
+  // Founder-only. Updates the three chain-bound fields of an OPEN task.
+  updateTask(input: UpdateTaskOnchainInput): Promise<SolanaResult>;
 
   claimTask(input: ClaimTaskOnchainInput): Promise<SolanaResult>;
   // Creates the Contribution account on chain with a non-zero evidence hash.

@@ -119,6 +119,10 @@ export interface AppContextValue {
   // Sends initialize_project and records the confirmed PDA. Live mode only.
   publishProjectOnchain: (projectId: string) => Promise<{ pda: string; signature: string }>;
   publishTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
+  updateTaskOnchain: (
+    taskId: string,
+    patch: { rewardBps: number; acceptanceCriteria: string },
+  ) => Promise<{ pda: string; signature: string }>;
   // STOP-16: sends claim_task for a task already claimed locally and already
   // created on chain. Live mode only.
   claimTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
@@ -411,6 +415,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return { pda: result.pda, signature: result.signature };
     },
     [db, mode, providers],
+  );
+
+  const updateTaskOnchainFn = useCallback(
+    async (
+      taskId: string,
+      patch: { rewardBps: number; acceptanceCriteria: string },
+    ): Promise<{ pda: string; signature: string }> => {
+      const task = db.tasks.find((t) => t.id === taskId);
+      if (!task) throw new Error('Task not found: ' + taskId);
+      const project = db.projects.find((p) => p.id === task.projectId);
+      if (!project) throw new Error('Project not found: ' + task.projectId);
+      if (mode !== 'live') throw new Error('Switch to live mode to update this task on chain.');
+      if (!walletAddress) throw new Error('Connect the founder wallet before updating.');
+      if (project.ownerUserId !== CURRENT_USER_ID) {
+        throw new Error('Only the local project authority may update this task.');
+      }
+      if (project.founderWallet !== walletAddress) {
+        throw new Error(
+          'Connected wallet is ' + walletAddress +
+            ', but the founder is ' + project.founderWallet + '. Nothing was sent.',
+        );
+      }
+      if (project.solanaProjectPda === null || task.onchainTaskId === null) {
+        throw new Error('Create the project and task on chain before updating it.');
+      }
+      if (task.status !== 'OPEN') {
+        throw new Error('Only an OPEN task can be updated. Status is ' + task.status + '.');
+      }
+
+      const domainPatch = {
+        rewardBps: patch.rewardBps,
+        acceptanceCriteria: patch.acceptanceCriteria.trim(),
+      };
+      // Preview validates local authority, integer BPS and pool accounting
+      // without persisting anything before the chain accepts.
+      const preview = domain.updateTask(db, {
+        taskId,
+        actorUserId: CURRENT_USER_ID,
+        patch: domainPatch,
+      });
+      const commitmentModule = await import('../domain/commitment');
+      const repoRefModule = await import('../domain/repo-ref');
+      const acceptanceCriteriaHash = await commitmentModule.hashAcceptanceCriteria(
+        preview.task.acceptanceCriteria,
+      );
+      const repoRefHash = await repoRefModule.hashRepoRef(
+        preview.task.repositoryFullName,
+        preview.task.baseBranch,
+      );
+
+      const result = await providers.solana.updateTask({
+        projectId: project.id,
+        taskId: task.id,
+        onchainProjectId: project.onchainProjectId,
+        onchainTaskId: task.onchainTaskId,
+        founderWallet: project.founderWallet,
+        rewardBps: preview.task.rewardBps,
+        acceptanceCriteriaHash,
+        repoRefHash,
+      });
+      if (result.kind !== 'onchain') {
+        throw new Error('The provider did not return an on-chain result. Nothing changed.');
+      }
+
+      // Re-run the pure reducer after confirmation so audit time is local-last.
+      const committed = domain.updateTask(db, {
+        taskId,
+        actorUserId: CURRENT_USER_ID,
+        patch: domainPatch,
+      });
+      setDb(committed.db);
+      return { pda: result.pda, signature: result.signature };
+    },
+    [db, mode, providers, walletAddress],
   );
 
   const createTaskFn = useCallback(
@@ -794,6 +872,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     createProject: createProjectFn,
     publishProjectOnchain: publishProjectOnchainFn,
     publishTaskOnchain: publishTaskOnchainFn,
+    updateTaskOnchain: updateTaskOnchainFn,
     claimTaskOnchain: claimTaskOnchainFn,
     expireClaimOnchain: expireClaimOnchainFn,
     cancelTaskOnchain: cancelTaskOnchainFn,
