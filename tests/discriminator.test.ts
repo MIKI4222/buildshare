@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   ALLOCATE_OWNERSHIP_DISCRIMINATOR,
+  CANCEL_TASK_DISCRIMINATOR,
   CLAIM_TASK_DISCRIMINATOR,
   CREATE_MEMBER_DISCRIMINATOR,
   APPROVE_CONTRIBUTION_DISCRIMINATOR,
@@ -116,6 +117,7 @@ describe('the full set of browser-signed instructions', () => {
   const pinned: Array<[string, number[]]> = [
     ['initialize_project', INITIALIZE_PROJECT_DISCRIMINATOR],
     ['create_task', CREATE_TASK_DISCRIMINATOR],
+    ['cancel_task', CANCEL_TASK_DISCRIMINATOR],
     ['claim_task', CLAIM_TASK_DISCRIMINATOR],
     ['expire_claim', EXPIRE_CLAIM_DISCRIMINATOR],
     ['submit_contribution', SUBMIT_CONTRIBUTION_DISCRIMINATOR],
@@ -131,7 +133,7 @@ describe('the full set of browser-signed instructions', () => {
     });
   }
 
-  it('all eight discriminators are distinct', () => {
+  it('all nine discriminators are distinct', () => {
     const seen = new Set(pinned.map(([, bytes]) => bytes.join(',')));
     assert.equal(seen.size, pinned.length);
   });
@@ -166,5 +168,14 @@ describe('submit_contribution wire format', () => {
   it('refuses an evidence hash that is not 32 bytes', () => {
     assert.throws(() => encodeSubmitContributionData(2, new Uint8Array(31)), RangeError);
     assert.throws(() => encodeSubmitContributionData(2, new Uint8Array(33)), RangeError);
+  });
+});
+
+
+describe('cancel_task browser wire format', () => {
+  it('sends exactly its eight-byte discriminator and no arguments', () => {
+    const data = new Uint8Array(CANCEL_TASK_DISCRIMINATOR);
+    assert.equal(data.length, 8);
+    assert.deepEqual(Array.from(data), CANCEL_TASK_DISCRIMINATOR);
   });
 });

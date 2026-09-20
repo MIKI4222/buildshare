@@ -105,6 +105,14 @@ export interface SubmitContributionOnchainInput {
   evidenceHash: string;
 }
 
+export interface CancelTaskOnchainInput {
+  projectId: string;
+  taskId: string;
+  onchainProjectId: number;
+  onchainTaskId: number;
+  founderWallet: string;
+}
+
 export interface ExpireClaimOnchainInput {
   projectId: string;
   taskId: string;
@@ -136,6 +144,9 @@ export interface SolanaProvider {
   // Creates the Contribution account on chain with a non-zero evidence hash.
   // The contributor signs and pays rent. STOP-18.
   submitContribution(input: SubmitContributionOnchainInput): Promise<SolanaResult>;
+  // Founder-only. Cancels an Open, Expired or Rejected task. The program
+  // releases committed ownership only when the task actually owns a reservation.
+  cancelTask(input: CancelTaskOnchainInput): Promise<SolanaResult>;
   // Permissionless. Moves a stale Claimed task to Expired on chain. The
   // reservation is not released: that belongs to cancel_task alone.
   expireClaim(input: ExpireClaimOnchainInput): Promise<SolanaResult>;

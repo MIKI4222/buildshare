@@ -4,16 +4,16 @@ Every transaction the BuildShare web client has ever signed. Each one was signed
 Phantom by a human clicking a button in the UI, not by a script and not by the CLI
 keypair. All are finalised on Solana Devnet and can be verified by anyone.
 
-Eight of the eleven program instructions appear here: `initialize_project`,
-`create_task`, `claim_task`, `expire_claim`, `submit_contribution`, `create_member`,
-`approve_contribution` and `allocate_ownership`. `update_task`, `cancel_task` and
+Nine of the eleven program instructions appear here: `initialize_project`,
+`create_task`, `claim_task`, `expire_claim`, `cancel_task`, `submit_contribution`,
+`create_member`, `approve_contribution` and `allocate_ownership`. `update_task` and
 `reject_contribution` have never been sent from a browser and are not claimed below.
 
 Program: `6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G`
 Signer: `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` (Phantom, Devnet)
-Dates: 9, 10 and 17 September 2026. Sections 1-4 record the state as it stood on those
-first two days; section 5 records the rest of the lifecycle on 17 September and
-supersedes the task state shown in section 3.
+Dates: 9, 10, 17 and 20 September 2026. Sections 1-4 record the first two days,
+section 5 records the ownership lifecycle on 17 September, and section 6 records an
+independent OPEN -> CANCELLED task on 20 September.
 
 ## 1. initialize_project
 
@@ -241,7 +241,45 @@ The reservation became an allocation with no basis point lost and no double allo
 The 500 bps are recorded against the contributor wallet taken from the task commitment,
 not from any user record.
 
-## 6. What this run does NOT prove
+## 6. 20 Sep 2026 — founder cancellation of an OPEN task
+
+BUILD-003 (`Cancel path browser proof`) was created locally with a 100 bps reward. The
+browser then sent two Phantom-signed Devnet transactions:
+
+| Instruction | Signature | Slot | CU | Size |
+| --- | --- | --- | --- | --- |
+| `create_task` | `wPm6oZTgPNTgevuXMRJUkq6nhHFkg4yXv2EkosS2vQoLxHVMpTUsDZPQpx2vgLiWWNUNnrXa9HnpDBgBJKKQeGz` | 501,266,766 | 11,389 | 403 B |
+| `cancel_task` | `3BGPqdU2hCgvBM9hQtL84VKwE4bbUbJhtqB35AS8bbywN8XbHmN7VeRabPuAAqyffBy6thex8fLfhy3WXpBPW2TS` | 501,268,264 | 5,049 | 296 B |
+
+Both finalised. `create_task` carried task id 2, reward 100 bps and discriminator
+`[194,80,6,180,232,127,48,171]`. It created Task PDA
+`8eM4AxHPZYCKzkteZWwzPzXzMYjkVMdabeDpvfhHRmfz`.
+
+Before cancellation:
+
+- Task status `0 OPEN`, attempt 0, contributor `None`;
+- `reserved_committed = false`;
+- Project `committed_bps = 0`, `allocated_bps = 500`, task count 3, member count 1.
+
+The cancellation payload was exactly `[69,228,134,187,134,105,238,48]`, with no
+arguments. The program log named `Instruction: CancelTask`.
+
+After confirmation and read-back:
+
+- Task status moved `0 OPEN -> 6 CANCELLED`;
+- contributor remained `None`;
+- `reserved_committed` remained false;
+- Project accounting and counts were unchanged.
+
+This proves the zero-release branch: an OPEN on-chain task owns no reservation yet.
+App-context applied local cancellation only after chain verification. BUILD-003 became
+`BLOCKED`, local committed ownership returned from 1900 to 1800, and audit metadata
+recorded `releasedBps: 100`.
+
+The repeated `create_task` does not increase instruction coverage. `cancel_task` is the
+ninth distinct instruction proven from the browser.
+
+## 7. What these runs do NOT prove
 
 - The AI verification was produced by `DemoAIProvider` / `buildshare-ai-v1`, a
   deterministic heuristic. No model was called, no API key exists in the repository, and
@@ -253,8 +291,13 @@ not from any user record.
 - Pull request #1 is a draft and unmerged, so `5d16f135b3b4f7aeab416c7acf169df8af9a6450`
   is its head commit, not a merge commit. It is opened against the `baseline` ref because
   `main` in this repository has no common ancestor with the working branch.
-- Three of the eleven instructions have still never been signed from a browser:
-  `update_task`, `cancel_task` and `reject_contribution`.
+- Two of the eleven instructions have still never been signed from a browser:
+  `update_task` and `reject_contribution`.
+- Browser `reject_contribution` is blocked by the current Evidence v1 lifecycle:
+  `submit_contribution` requires a non-zero evidence hash, but the client fixes that hash
+  only during approval because it contains `approvedByWallet` and `approvedAt`. Inventing
+  a hash or approving only to reject would make the audit false; changing the schema is
+  outside the P1 design freeze.
 - Nothing here was executed on Mainnet.
 - The upgrade authority is still a local development keypair.
 - There are no real users and no real contributions. One wallet acted as both founder and

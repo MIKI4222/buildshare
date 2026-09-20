@@ -16,6 +16,7 @@ import { OnchainProjectPanel } from '../components/OnchainProjectPanel';
 import { OnchainTaskButton } from '../components/OnchainTaskButton';
 import { OnchainClaimButton } from '../components/OnchainClaimButton';
 import { OnchainExpireClaimButton } from '../components/OnchainExpireClaimButton';
+import { OnchainCancelTaskButton } from '../components/OnchainCancelTaskButton';
 import { SubmitWorkForm } from '../components/SubmitWorkForm';
 import { TaskStatusBadge, ContributionStatusBadge, AIRecommendationBadge } from '../components/StatusBadges';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -300,6 +301,7 @@ function TasksTab({ projectId }: { projectId: string }) {
                         <OnchainTaskButton project={project} task={task} />
                         <OnchainClaimButton project={project} task={task} />
                         <OnchainExpireClaimButton project={project} task={task} />
+                      <OnchainCancelTaskButton project={project} task={task} />
                       </div>
                     </div>
                     <TaskStatusBadge status={task.status} />

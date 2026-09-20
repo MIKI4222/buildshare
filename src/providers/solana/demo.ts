@@ -82,6 +82,16 @@ export class DemoSolanaProvider implements SolanaProvider {
     );
   }
 
+  async cancelTask(
+    input: import('./types').CancelTaskOnchainInput,
+  ): Promise<never> {
+    throw domainError(
+      'LIVE_MODE_UNAVAILABLE',
+      'Demo mode cannot cancel a task on chain. Switch to live mode and connect a wallet.',
+      { taskId: input.taskId, projectId: input.projectId },
+    );
+  }
+
   async expireClaim(
     input: import('./types').ExpireClaimOnchainInput,
   ): Promise<never> {

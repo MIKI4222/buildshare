@@ -97,6 +97,9 @@ export function encodeClaimTaskData(commitmentHash: Uint8Array): Uint8Array {
 // alone. Taken from target/idl/buildshare.json, not from memory.
 export const EXPIRE_CLAIM_DISCRIMINATOR = [176, 78, 241, 29, 159, 81, 26, 6];
 
+// cancel_task takes no arguments. Bytes copied from target/idl/buildshare.json.
+export const CANCEL_TASK_DISCRIMINATOR = [69, 228, 134, 187, 134, 105, 238, 48];
+
 export const SUBMIT_CONTRIBUTION_DISCRIMINATOR = [123, 132, 230, 253, 141, 22, 214, 91];
 export const APPROVE_CONTRIBUTION_DISCRIMINATOR = [202, 161, 21, 234, 88, 85, 197, 7];
 
@@ -1006,6 +1009,200 @@ export class LiveSolanaProvider implements SolanaProvider {
       }
       throw e;
     }
+  }
+
+  // Founder-only. Read-before-write prevents a wallet prompt when the chain
+  // cannot accept cancellation. Local state is updated by app-context only
+  // after this method confirms and reads back the chain state.
+  async cancelTask(
+    input: import('./types').CancelTaskOnchainInput,
+  ): Promise<SolanaResult> {
+    if (typeof window === 'undefined') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'On-chain cancellation needs a browser wallet. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+    const walletModule = await import('../../lib/solana/wallet');
+    const injected = walletModule.getWalletProvider();
+    if (!injected || typeof injected.signTransaction !== 'function') {
+      throw domainError(
+        'LIVE_MODE_UNAVAILABLE',
+        'No Solana wallet able to sign transactions was found. Nothing was sent.',
+        { taskId: input.taskId, network: this.network },
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const web3 = (await this.web3()) as any;
+    const PublicKey = web3.PublicKey;
+    const connected = injected.publicKey
+      ? injected.publicKey
+      : (await injected.connect()).publicKey;
+    const founderKey = new PublicKey(connected.toString());
+
+    if (founderKey.toBase58() !== input.founderWallet) {
+      throw domainError(
+        'NOT_AUTHORIZED',
+        'Only the founder wallet can cancel this task. Connected: ' +
+          founderKey.toBase58() + '. Expected: ' + input.founderWallet + '. Nothing was sent.',
+        { taskId: input.taskId },
+      );
+    }
+
+    const program = new PublicKey(this.programId);
+    const projectPda = await this.deriveProjectPda(
+      input.onchainProjectId,
+      input.founderWallet,
+    );
+    const taskPda = await this.deriveTaskPda(projectPda, input.onchainTaskId);
+    const projectKey = new PublicKey(projectPda);
+    const taskKey = new PublicKey(taskPda);
+    const connection = new web3.Connection(this.rpcUrl, 'confirmed');
+
+    const [projectInfo, taskInfo] = await Promise.all([
+      connection.getAccountInfo(projectKey),
+      connection.getAccountInfo(taskKey),
+    ]);
+    if (projectInfo === null || taskInfo === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The Project or Task account is missing. Nothing was sent.',
+        { taskId: input.taskId, projectPda, taskPda },
+      );
+    }
+    if (
+      projectInfo.owner.toBase58() !== this.programId ||
+      taskInfo.owner.toBase58() !== this.programId
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The derived Project or Task account is not owned by the BuildShare program. Nothing was sent.',
+        { taskId: input.taskId, projectPda, taskPda },
+      );
+    }
+
+    const decodeModule = await import('../../lib/solana/decode');
+    const beforeProject = decodeModule.decodeProjectAccount(
+      new Uint8Array(projectInfo.data),
+    );
+    const beforeTask = decodeModule.decodeTaskAccount(new Uint8Array(taskInfo.data));
+
+    if (
+      beforeProject.founder !== input.founderWallet ||
+      beforeProject.projectId !== String(input.onchainProjectId) ||
+      beforeTask.project !== projectPda ||
+      beforeTask.taskId !== String(input.onchainTaskId)
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The derived accounts do not match the requested project and task. Nothing was sent.',
+        { taskId: input.taskId, projectPda, taskPda },
+      );
+    }
+
+    const cancellable =
+      beforeTask.status === 'OPEN' ||
+      beforeTask.status === 'EXPIRED' ||
+      beforeTask.status === 'REJECTED';
+    if (!cancellable) {
+      throw domainError(
+        'INVALID_TRANSITION',
+        'The task at ' + taskPda + ' is ' + beforeTask.status +
+          ' on chain. Only OPEN, EXPIRED or REJECTED can be cancelled. Nothing was sent.',
+        { taskId: input.taskId, onchainStatus: beforeTask.status },
+      );
+    }
+
+    const releasedBps = beforeTask.reservedCommitted ? beforeTask.rewardBps : 0;
+    if (beforeProject.committedBps < releasedBps) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The chain project cannot release the task reservation without underflow. Nothing was sent.',
+        {
+          taskId: input.taskId,
+          committedBps: beforeProject.committedBps,
+          releasedBps,
+        },
+      );
+    }
+    const expectedCommittedBps = beforeProject.committedBps - releasedBps;
+
+    const tx = new web3.Transaction().add(
+      new web3.TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: founderKey, isSigner: true, isWritable: true },
+          { pubkey: projectKey, isSigner: false, isWritable: true },
+          { pubkey: taskKey, isSigner: false, isWritable: true },
+        ],
+        data: new Uint8Array(CANCEL_TASK_DISCRIMINATOR),
+      }),
+    );
+    const latest = await connection.getLatestBlockhash('confirmed');
+    tx.feePayer = founderKey;
+    tx.recentBlockhash = latest.blockhash;
+
+    const signed = await injected.signTransaction(tx);
+    const signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      'confirmed',
+    );
+
+    const [afterProjectInfo, afterTaskInfo] = await Promise.all([
+      connection.getAccountInfo(projectKey),
+      connection.getAccountInfo(taskKey),
+    ]);
+    if (afterProjectInfo === null || afterTaskInfo === null) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The cancellation confirmed but a Project or Task account is missing. Signature: ' +
+          signature + '.',
+        { taskId: input.taskId, signature },
+      );
+    }
+
+    const afterProject = decodeModule.decodeProjectAccount(
+      new Uint8Array(afterProjectInfo.data),
+    );
+    const afterTask = decodeModule.decodeTaskAccount(
+      new Uint8Array(afterTaskInfo.data),
+    );
+    if (
+      afterTask.status !== 'CANCELLED' ||
+      afterTask.contributor !== null ||
+      afterTask.reservedCommitted ||
+      afterProject.committedBps !== expectedCommittedBps ||
+      afterProject.allocatedBps !== beforeProject.allocatedBps
+    ) {
+      throw domainError(
+        'INVARIANT_VIOLATION',
+        'The cancellation confirmed but read-back does not match cancel_task semantics. ' +
+          'Nothing may be recorded locally. Signature: ' + signature + '.',
+        {
+          taskId: input.taskId,
+          signature,
+          taskStatus: afterTask.status,
+          contributor: afterTask.contributor,
+          reservedCommitted: afterTask.reservedCommitted,
+          expectedCommittedBps,
+          actualCommittedBps: afterProject.committedBps,
+          expectedAllocatedBps: beforeProject.allocatedBps,
+          actualAllocatedBps: afterProject.allocatedBps,
+        },
+      );
+    }
+
+    return this.buildOnchainResult(taskPda, signature);
   }
 
   async allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult> {

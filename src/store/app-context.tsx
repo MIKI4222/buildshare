@@ -125,6 +125,9 @@ export interface AppContextValue {
   // STOP-26: sends expire_claim, which is permissionless on chain. The
   // reservation is not released: only cancel_task does that.
   expireClaimOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
+  // Founder-only cancel_task. Local cancellation is applied only after the
+  // provider confirms and reads back CANCELLED from the chain.
+  cancelTaskOnchain: (taskId: string) => Promise<{ pda: string; signature: string }>;
   createTask: (input: CreateTaskInput) => Task;
   claimTask: (taskId: string) => Promise<void>;
   // STOP-19: creates the local contribution and its merged pull request
@@ -523,6 +526,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [db, mode, providers, walletAddress],
   );
 
+  const cancelTaskOnchainFn = useCallback(
+    async (taskId: string): Promise<{ pda: string; signature: string }> => {
+      const task = db.tasks.find((t) => t.id === taskId);
+      if (!task) throw new Error('Task not found: ' + taskId);
+      const project = db.projects.find((p) => p.id === task.projectId);
+      if (!project) throw new Error('Project not found: ' + task.projectId);
+      if (mode !== 'live') {
+        throw new Error('Switch to live mode to cancel this task on chain.');
+      }
+      if (!walletAddress) {
+        throw new Error('Connect the founder wallet before sending cancel_task.');
+      }
+      if (project.ownerUserId !== CURRENT_USER_ID) {
+        throw new Error('Only the local project authority may cancel this task.');
+      }
+      if (project.founderWallet !== walletAddress) {
+        throw new Error(
+          'Connected wallet is ' + walletAddress +
+            ', but the project founder is ' + project.founderWallet + '. Nothing was sent.',
+        );
+      }
+      if (project.solanaProjectPda === null || task.onchainTaskId === null) {
+        throw new Error('Create the project and task on chain before cancelling the task.');
+      }
+      if (
+        task.status !== 'OPEN' &&
+        task.status !== 'EXPIRED' &&
+        task.status !== 'REJECTED'
+      ) {
+        throw new Error(
+          'Only OPEN, EXPIRED or REJECTED tasks can be cancelled. Status is ' +
+            task.status + '. Nothing was sent.',
+        );
+      }
+      // The local model reserves at createTask, while the chain reserves at
+      // claim_task. Preflight this local release before any wallet prompt.
+      if (project.committedBps < task.rewardBps) {
+        throw new Error(
+          'Local committed ownership is smaller than the task reward. Nothing was sent.',
+        );
+      }
+
+      const result = await providers.solana.cancelTask({
+        projectId: project.id,
+        taskId: task.id,
+        onchainProjectId: project.onchainProjectId,
+        onchainTaskId: task.onchainTaskId,
+        founderWallet: project.founderWallet,
+      });
+      if (result.kind !== 'onchain') {
+        throw new Error('The provider did not return an on-chain result. Nothing changed.');
+      }
+
+      // Chain first, local record last.
+      const next = domain.cancelTask(db, {
+        taskId,
+        actorUserId: CURRENT_USER_ID,
+      });
+      setDb(next.db);
+      return { pda: result.pda, signature: result.signature };
+    },
+    [db, mode, providers, walletAddress],
+  );
+
   const claimTaskFn = useCallback(
     async (taskId: string) => {
       if (mode === 'live' && !walletAddress) {
@@ -729,6 +796,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     publishTaskOnchain: publishTaskOnchainFn,
     claimTaskOnchain: claimTaskOnchainFn,
     expireClaimOnchain: expireClaimOnchainFn,
+    cancelTaskOnchain: cancelTaskOnchainFn,
     createTask: createTaskFn,
     claimTask: claimTaskFn,
     submitWork: submitWorkFn,
