@@ -121,11 +121,14 @@ one another: a **Demo** provider, which produces no signatures and can never emi
 not pass base58 validation. This separation is enforced by tests so that demo data can never be mistaken for a
 real settlement.
 
-The client reads on-chain state without shipping an Anchor client. The Project account layout is frozen at 101
-bytes, so a hand-written decoder over a DataView is enough; an account of any other length, or one not owned by
-the program, is refused rather than guessed. The project page shows the on-chain basis points next to the local
-ones and flags any field where the two disagree. Writing is a separate matter: allocating ownership from the
-browser requires wallet signing, which is not implemented, and the Live provider throws instead of pretending.
+The client reads the frozen Project, Task, Contribution and Member account layouts
+directly and refuses accounts with the wrong owner or size. The Live provider implements
+all eleven program instructions with browser wallet signing, chain-first persistence and
+post-confirmation account validation.
+
+All eleven instructions are browser-proven on Solana Devnet. The recorded proof now
+contains 18 Phantom-signed transactions, including BUILD-006: a complete ownership
+lifecycle with distinct founder and contributor signer addresses.
 
 ---
 
@@ -140,18 +143,14 @@ npm run dev     # starts the app in demo mode
 npx tsc --noEmit -p tsconfig.app.json
 ```
 
-The Anchor parity tests under `tests/anchor/` are **not** part of `npm test`. They require an Anchor client
-package and a local validator, neither of which is installed here, so they currently do not execute.
+The Anchor parity tests under `tests/anchor/` are separate from `npm test`.
+The latest verified run passed 29/29 tests against a local validator. Rust unit tests
+passed 31/31, and TypeScript passed 295/295 across 44 suites.
 
-Building the on-chain program requires the Rust toolchain, the Solana CLI and Anchor. Those steps have not been
-performed in this repository yet:
-
-```bash
-# not yet run
-anchor keys sync
-anchor build
-anchor deploy --provider.cluster devnet
-```
+The frozen program is deployed on Solana Devnet as
+`6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G`, deployment slot `492442102`.
+Do not run `anchor keys sync`; the checked-in Program ID and deployed address must remain
+aligned.
 
 ---
 
@@ -177,9 +176,11 @@ P1 STEP 5 is complete. Written code became verifiable execution:
 
 Next, and these are **targets, not achievements**:
 
-1. Run the lifecycle with several independent contributor wallets in one project.
+1. Repeat the lifecycle with a contributor wallet operated by an external person.
+   BUILD-006 proves distinct signer addresses, but both were controlled by one operator.
 2. Have the on-chain accounting reviewed by someone other than its author.
-3. Replace the deterministic Demo AI reviewer when that scope is approved.
+3. Publish a hosted Live-mode demo and replace the deterministic Demo AI reviewer
+   when those scopes are approved.
 
 The project's key metric is the number of contributor ownership allocations settled on Solana Devnet with
 publicly verifiable transaction signatures. That count is currently **two**. The staged targets are 10 and 20.

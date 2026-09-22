@@ -6,7 +6,7 @@ completely before touching anything.
 Repository: https://github.com/MIKI4222/buildshare
 Default and working branch: `feature/p0-hardening` (this is intentional; do not
 switch or rename it)
-State of this document: current through the 20 Sep 2026 Evidence v2 browser proof. The implementation and proof are recorded in commit `3a45627`.
+State of this document: current through the 22 Sep 2026 BUILD-006 distinct-signer ownership proof. Evidence v2 implementation is recorded in commit `3a45627`; the BUILD-006 proof is recorded below.
 
 ---
 
@@ -376,12 +376,15 @@ claim_task was signed in a browser on 10 Sep 2026: signature
 Task PDA HCzZ63bGUF583WVo1yr3pcvYL7kJGNDp831gWH7u2UYV, commitment hash on chain identical
 to local state, committed_bps 0 -> 500. See section 3 of DEVNET-PROOF-BROWSER.md.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
-6. DONE. README test counts are 295 TS / 355 total. These figures come from
-the working tree of 20 Sep 2026 and are not yet committed.
-7. Optional: several independent contributor wallets;
+6. DONE. README test counts are 295 TS / 355 total, verified on
+20 Sep 2026.
+
+7. BUILD-006 proved a distinct contributor signer address on 22 Sep 2026.
+   Remaining optional work: a contributor operated by an external person;
    an external accounting review; code-splitting the 624 kB bundle; a dedicated
-   RPC endpoint; silencing the ambiguous glob re-export warning in
+   RPC endpoint; and silencing the ambiguous glob re-export warning in
    `programs/buildshare/src/instructions/mod.rs`.
+
 8. DONE. `expire_claim` was signed on 17 Sep 2026 once the 7-day window of attempt 1
 had really elapsed: `4NpegSS6...tYgre`, slot 499,867,813. It was not faked, and the
 same button refused to send anything against an already expired task.
@@ -394,9 +397,12 @@ was created on chain as task id 2 and cancelled from OPEN:
 10. DONE. Submission Evidence v2 removed the honest
 pre-approval evidence blocker without changing the frozen program.
 The browser created the Contribution account at submission time and
-then rejected it with Reject Reason v1. Remaining product work is a
-second independent contributor wallet, external accounting review,
-real PR data and a non-demo AI provider when approved.
+then rejected it with Reject Reason v1. BUILD-006 subsequently proved
+the ownership path with distinct founder and contributor signer addresses.
+Remaining product work is an externally operated contributor wallet,
+external accounting review, real PR diff data, hosted Live mode and a
+non-demo AI provider when approved.
+
 
 ---
 
@@ -507,7 +513,7 @@ d1b36b2 feat: decode Task accounts, and hand the project over in writing
 
 A dropped pre-amend commit `6a2d407` exists in reflog only; ignore it.
 
-## 13. Current session handoff — Evidence v2 browser rejection
+## 13. Current session handoff — Evidence v2 and distinct-signer ownership
 
 The client now seals Submission Evidence v2 before AI review or founder
 action. In Live mode `submit_contribution` confirms and passes account
@@ -542,8 +548,39 @@ Finalised read-back:
   `f1d0055a3f57c2adb7ca2a7c2575d01a4a92a059184714f90544d90204c07281`;
 - Project bytes were unchanged by rejection.
 
-The browser instruction surface is now 11/11. The discriminator test pins all
-eleven instructions.
+The browser instruction surface remains 11/11. The proof now records 18
+Phantom-signed Devnet transactions, and the discriminator test pins all eleven
+instructions.
+
+BUILD-006 distinct-signer ownership proof on 22 Sep 2026:
+
+- founder signer:
+  `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG`;
+- contributor signer:
+  `FJ5iHeEoiXMYshDxUsVDQW7Kv89HjSpWA2fRxsedB7Y5`;
+- Task PDA:
+  `G6AChRDE3Azh7MZccNy6T8ivRFriPXJmJj6ZVeDTiX5B`;
+- Contribution PDA:
+  `7UVyLz4RuGqKuzUKSXET4cTEvvKn4U7jDuHquHXhAcLQ`;
+- Member PDA:
+  `GwfmwkzwJx6i1i7NCDrUuBHwiugGMcd1coQMEDgSJRy`;
+- `create_task`: `2WQ214ua...JSCUQY1`, slot 502,464,093;
+- `claim_task`: `pCmqN6Ds...h7oUXg`, slot 502,467,113;
+- `submit_contribution`: `cqBiThum...TFi2z`, slot 502,470,667;
+- atomic create/approve/allocate:
+  `43kkcHVH...sw4em8`, slot 502,475,621;
+- Task final status `COMPLETED`;
+- Contribution final status `SETTLED`;
+- Evidence v2 hash:
+  `3b61004465dc964c41e64bce93ba46bc4daeac2f148762646b6573e5abcd8be4`;
+- Member ownership `100` bps, allocation count `1`;
+- Project committed `100`, allocated `600`, remaining `5300`,
+  task count `6`, member count `2`;
+- every finalized Project, Task, Contribution and Member assertion passed.
+
+This proves authorization by distinct Solana signer addresses. Both Phantom
+accounts were controlled by the same operator, so this is not evidence of an
+independent external human contributor.
 
 Current gates:
 
@@ -556,15 +593,17 @@ Pull request #1 remains open and intentionally draft. BUILD-005 used the
 GitHub API merge ref present at submission time; it did not claim that the PR
 was merged.
 
-The dev server used port 5174 and is now stopped. No Mainnet transaction was
-sent. `.agents/` and `skills-lock.json` are unrelated untracked files and must
-not be included.
+The browser proofs used `localhost:5174`; confirm current process state before
+resuming. No Mainnet transaction was sent. `.agents/` and `skills-lock.json`
+are unrelated untracked files and must not be included.
+
 
 Next product actions:
 
 1. Keep PR #1 draft unless separately approved.
-2. Run the lifecycle with an independent contributor wallet.
+2. Repeat the lifecycle with a contributor operated by an external person.
 3. Obtain an external accounting and security review.
-4. Publish a hosted demo and replace the deterministic Demo AI provider.
+4. Publish a hosted Live-mode demo and replace the deterministic Demo AI provider.
+
 
 The dated grant package is regenerated separately from committed repository files.

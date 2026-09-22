@@ -1,6 +1,6 @@
 # Devnet proof — the browser write path
 
-Every transaction the BuildShare web client has ever signed. Each one was signed in
+All 18 transactions recorded by the BuildShare web client were signed in
 Phantom by a human clicking a button in the UI, not by a script and not by the CLI
 keypair. All are finalised on Solana Devnet and can be verified by anyone.
 
@@ -10,10 +10,12 @@ All eleven program instructions now appear here: `initialize_project`,
 `reject_contribution` and `allocate_ownership`.
 
 Program: `6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G`
-Signer: `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` (Phantom, Devnet)
-Dates: 9, 10, 17 and 20 September 2026. Sections 1-4 record the first two
-days, section 5 records the ownership lifecycle, sections 6-7 record cancellation
-and update, and section 8 records Submission Evidence v2 plus browser rejection.
+Founder signer: `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG` (Phantom, Devnet)
+Contributor signer: `FJ5iHeEoiXMYshDxUsVDQW7Kv89HjSpWA2fRxsedB7Y5` (Phantom, Devnet)
+Dates: 9, 10, 17, 20 and 22 September 2026. Sections 1-4 record the first
+two days, section 5 records the first ownership lifecycle, sections 6-7 record
+cancellation and update, section 8 records Submission Evidence v2 plus browser
+rejection, and section 9 records the distinct-signer ownership lifecycle.
 
 ## 1. initialize_project
 
@@ -130,9 +132,9 @@ This run also proves the wallet fix from `bbc757f`. The task claimed yesterday c
 This one carries the connected wallet. Both records sit in the same local database, before
 and after.
 
-The contributor here is the founder: one Phantom account signs both roles because only one
-wallet is funded. The chain does not forbid it, and no instruction assumes the two differ.
-Genuine role separation with a second wallet is a separate step and has not been done.
+The contributor in this historical run was the founder: one Phantom account signed both
+roles. The chain does not forbid that arrangement. Section 9 later proves the same lifecycle
+with a distinct contributor signer address.
 
 ## 4. Local state versus chain state
 
@@ -382,7 +384,58 @@ before app-context persisted the local rejection.
 This is the eleventh distinct instruction proven from the browser. The browser
 write surface is now 11/11.
 
-## 9. What these runs do NOT prove
+## 9. 22 Sep 2026 — distinct-signer ownership lifecycle
+
+BUILD-006 (`Independent contributor ownership proof`) exercised the complete
+ownership lifecycle with two distinct Phantom signer addresses. The founder
+created the task, the contributor claimed and submitted it, and the founder
+approved and allocated ownership.
+
+| Instruction(s) | Signer | Signature | Slot | CU |
+| --- | --- | --- | --- | --- |
+| `create_task` | founder | `2WQ214uaAZ8Hb9EbPdN97aR8qbYzgfDFj3H9paGz8GuG642Luh1RJLYsMTmsnDj93p6phKjuMNaGYtn4ZJSCUQY1` | 502,464,093 | 9,889 |
+| `claim_task` | contributor | `pCmqN6DszT7CMtppx68x1HkECrFbypZBVBWXC4DCtX5So8Nq5HBnVhpjXgEoME6qBE2WNGNoENXKCvxceh7oUXg` | 502,467,113 | 5,423 |
+| `submit_contribution` | contributor | `cqBiThumYY5KUQiBwwxdDR9pFDbGSNTSACMR1Be7kGpX176j9UuGH9EDoNfnb3DLuQdwaWBnYqha2ETcgfTFi2z` | 502,470,667 | 12,563 |
+| `create_member` + `approve_contribution` + `allocate_ownership` | founder | `43kkcHVHb88pW9s3M4zCzxa6Q4xgTy2ygTA1AeCUxTSnE3ENxSPNP7RTBgqtwJ8KeWi9FLqribsqRJ5q9psw4em8` | 502,475,621 | 25,157 |
+
+Signer roles:
+
+- founder: `53EeLHJLSaxwiCckBFWm7Soo79xuRRn3atVQ3SJq3EjG`;
+- contributor: `FJ5iHeEoiXMYshDxUsVDQW7Kv89HjSpWA2fRxsedB7Y5`.
+
+Derived accounts:
+
+- Task PDA: `G6AChRDE3Azh7MZccNy6T8ivRFriPXJmJj6ZVeDTiX5B`;
+- Contribution PDA: `7UVyLz4RuGqKuzUKSXET4cTEvvKn4U7jDuHquHXhAcLQ`;
+- Member PDA: `GwfmwkzwJx6i1i7NCDrUuBHwiugGMcd1coQMEDgSJRy`;
+- on-chain task id: `5`;
+- attempt: `1`;
+- reward: `100` bps.
+
+Submission Evidence v2 committed to draft pull request #1 using GitHub's API
+merge ref at submission time,
+`0364c68bcfa7655a1c4bcbdcfc4ace58eb48f67b`. This is evidence input, not a
+claim that the pull request was merged.
+
+Finalised read-back proved:
+
+- Task status `COMPLETED`, attempt `1`, contributor equal to the second signer;
+- Contribution status `SETTLED`, `allocated == true`, and `rejected_at == 0`;
+- Task and Contribution commitment hashes both equal
+  `0864022196e0ede53177259cca832410596a721985c6a6fa2bf310fe7db53f63`;
+- Submission Evidence v2 hash equals
+  `3b61004465dc964c41e64bce93ba46bc4daeac2f148762646b6573e5abcd8be4`;
+- Member wallet equals the contributor signer, with `100` bps and one allocation;
+- Project accounting closed at committed `100`, allocated `600`, remaining
+  `5300`, task count `6`, and member count `2`;
+- founder plus development pool remained exactly `10000` bps;
+- every Task, Contribution, Member and Project assertion passed.
+
+This proves signer separation at the Solana authorization layer. Both Phantom
+accounts were operated by the same human during the controlled proof, so it
+does not claim participation by an independent external contributor.
+
+## 10. What these runs do NOT prove
 
 - The AI verification was produced by `DemoAIProvider` / `buildshare-ai-v1`, a
   deterministic heuristic. No model was called, no API key exists in the repository, and
@@ -391,9 +444,11 @@ write surface is now 11/11.
 - The reviewed diff was empty. The pull request record carries `changedFiles: 0` and
   `headBranch: task/BUILD-002`, both placeholders generated by the submit form; the real
   head branch is `feature/p0-hardening`. Neither value enters the evidence hash.
-- Pull request #1 is a draft and unmerged, so `5d16f135b3b4f7aeab416c7acf169df8af9a6450`
-  is its head commit, not a merge commit. It is opened against the `baseline` ref because
-  `main` in this repository has no common ancestor with the working branch.
+- Pull request #1 remains draft and unmerged. Commit
+  `5d16f135b3b4f7aeab416c7acf169df8af9a6450` was the head used by the earlier
+  BUILD-002 evidence; later evidence records its own submission-time GitHub API
+  merge ref. The PR targets `baseline` because `main` has no common ancestor with
+  the working branch.
 - BUILD-005 used pull request #1, which remains open and intentionally draft.
   The submitted `mergeCommitSha` was GitHub's API merge ref at submission time,
   `eec1507babf980c920ba0a9725e94c06bb793180`, not a claim that the PR was merged.
@@ -401,6 +456,6 @@ write surface is now 11/11.
   not convert the draft pull request into accepted or merged work.
 - Nothing here was executed on Mainnet.
 - The upgrade authority is still a local development keypair.
-- There are no real users and no real contributions. One wallet acted as both founder and
-  contributor, so the founder-only authority checks were never exercised against a
-  different signer from the browser.
+- There are no external users and no production contributions. BUILD-006 exercised founder
+  and contributor authorization with two distinct signer addresses, but both Phantom
+  accounts were controlled by the same operator during the proof.
