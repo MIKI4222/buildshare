@@ -12,6 +12,46 @@ export function ModeIndicator({ compact = false }: { compact?: boolean }) {
   );
 }
 
+export function ModeSwitcher({ compact = false }: { compact?: boolean }) {
+  const {
+    mode,
+    setMode,
+    liveAvailable,
+    liveReason,
+    modeError,
+  } = useApp();
+
+  const target = mode === 'demo' ? 'live' : 'demo';
+  const liveDisabled = target === 'live' && !liveAvailable;
+  const label = target === 'live' ? 'Use Live Devnet' : 'Use Demo';
+  const reason = liveDisabled
+    ? liveReason || 'Live mode is not configured.'
+    : modeError || (
+      target === 'live'
+        ? 'Switch to real Solana Devnet integration.'
+        : 'Switch to local simulation without chain writes.'
+    );
+
+  return (
+    <button
+      type="button"
+      disabled={liveDisabled}
+      onClick={() => setMode(target)}
+      aria-label={label}
+      title={reason}
+      className={[
+        'rounded-lg border font-medium transition-colors focus-ring',
+        compact ? 'h-7 px-2 text-xs' : 'h-8 px-3 text-sm',
+        liveDisabled
+          ? 'cursor-not-allowed border-ink-200 bg-ink-50 text-ink-400'
+          : 'border-ink-300 bg-white text-ink-700 hover:bg-ink-50',
+      ].join(' ')}
+    >
+      {label}
+    </button>
+  );
+}
+
 // In demo mode we never claim to be on a network: no transaction is ever sent.
 export function NetworkIndicator() {
   const { mode } = useApp();

@@ -1,7 +1,8 @@
-import { useParams, Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { useParams, Link, NavLink, Route, Routes } from 'react-router-dom';
 import { useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
-  ArrowLeft, Users, GitBranch, Award, Activity, Settings, FileText,
+  ArrowLeft, Users, GitBranch, Award, Activity, Settings,
   GitPullRequest, Brain, CheckCircle, XCircle, TrendingUp, Layers,
   Clock, AlertCircle, ExternalLink,
 } from 'lucide-react';
@@ -23,17 +24,15 @@ import { TaskStatusBadge, ContributionStatusBadge, AIRecommendationBadge } from 
 import { CopyButton } from '../components/ui/CopyButton';
 import { timeAgo } from './DashboardPage';
 import { Modal } from '../components/ui/Modal';
-import { Input, Textarea, Select } from '../components/ui/Input';
 import { shortHash } from '../domain/evidence';
 import { shortAddress } from '../lib/solana/wallet';
 import { explorerTxUrl } from '../providers/solana/types';
-import type { Difficulty } from '../domain/types';
 
 const TAB_COLOR = 'text-ink-400';
 
 export function ProjectDetailPage() {
   const { projectId } = useParams();
-  const { getProject, getProjectMembers, getProjectTasks, getProjectContributions, getProjectActivity, getUser, mode } = useApp();
+  const { getProject, mode } = useApp();
   const project = projectId ? getProject(projectId) : undefined;
 
   if (!project) {
@@ -43,13 +42,6 @@ export function ProjectDetailPage() {
       </div>
     );
   }
-
-  const members = getProjectMembers(project.id);
-  const tasks = getProjectTasks(project.id);
-  const contributions = getProjectContributions(project.id);
-  const activity = getProjectActivity(project.id);
-  const openTasks = tasks.filter((t) => t.status === 'OPEN').length;
-  const completedTasks = tasks.filter((t) => t.status === 'ONCHAIN' || t.status === 'DEMO_ALLOCATED').length;
 
   const tabs = [
     { to: `/projects/${project.id}`, label: 'Overview', icon: Layers, end: true },
@@ -137,7 +129,6 @@ function OverviewTab({ projectId }: { projectId: string }) {
   const activity = getProjectActivity(project.id).slice(0, 6);
   const openTasks = tasks.filter((t) => t.status === 'OPEN').length;
   const completedTasks = tasks.filter((t) => t.status === 'ONCHAIN' || t.status === 'DEMO_ALLOCATED').length;
-  const pendingContributions = project && getProjectMembers(project.id);
 
   const cards = [
     { label: 'Allocated', value: bpsToPercentString(poolBreakdown(project).allocatedBps), icon: Award, tone: 'brand' },
@@ -342,7 +333,6 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
   const { getTask, getProject, getUser, claimTask, getProjectContributions, getPR } = useApp();
   const task = getTask(taskId);
   const project = getProject(projectId)!;
-  const navigate = useNavigate();
   const [claimModal, setClaimModal] = useState(false);
   const [claiming, setClaiming] = useState(false);
 
@@ -555,7 +545,6 @@ function ContributionsTab({ projectId }: { projectId: string }) {
 function ContributionDetail({ projectId, contributionId }: { projectId: string; contributionId: string }) {
   const { getContribution, getTask, getUser, getPR, approveContribution, rejectContribution, runReview, mode, db } = useApp();
   const contrib = getContribution(contributionId);
-  const navigate = useNavigate();
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -595,7 +584,7 @@ function ContributionDetail({ projectId, contributionId }: { projectId: string; 
     }
   };
 
-  const handleRunReview = async (e: MouseEvent) => {
+  const handleRunReview = async (e: ReactMouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setReviewing(true);

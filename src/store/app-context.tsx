@@ -243,6 +243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setMode = useCallback((m: AppMode) => {
     setModeError(null);
+    if (m === mode) return;
     if (m === 'live') {
       const check = liveAvailability();
       if (!check.available) {
@@ -251,9 +252,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
     }
+    // A demo address must never survive into Live mode, and a previously
+    // connected Live wallet must never be presented as a demo identity.
+    setWalletAddress(null);
+    setWalletError(null);
     resetProviderCache();
     setModeState(m);
-  }, []);
+  }, [mode]);
 
   const connectWalletFn = useCallback(async () => {
     setConnecting(true);
@@ -793,6 +798,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const task = domain.requireTask(db, contribution.taskId);
       const pr = db.pullRequests.find((x) => x.id === contribution.pullRequestId);
       if (!pr) throw new Error('Contribution has no linked pull request.');
+      const commitSha = pr.mergeCommitSha;
+      if (!commitSha) {
+        throw new Error('Cannot run review without a recorded merge commit SHA.');
+      }
       // changedFiles stays empty: the app does not read the diff from GitHub.
       const verification = await contributionService.verify({
         taskTitle: task.title,
@@ -803,7 +812,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         changedFiles: [],
         additions: pr.additions,
         deletions: pr.deletions,
-        commitSha: pr.mergeCommitSha,
+        commitSha,
       });
       const result = domain.recordVerification(db, { contributionId, verification });
       setDb(result.db);
