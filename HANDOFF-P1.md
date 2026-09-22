@@ -55,20 +55,21 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 295/295, 44 suites |
+| TypeScript tests (`npm test`) | PASS, 296/296, 44 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
 | Full lifecycle executed on Devnet by script | DONE, 2 runs, 24 public signatures |
 | Web client reads live on-chain state | DONE |
 | Web client writes on-chain state | **DONE — all eleven instructions were signed in Phantom and finalised on Devnet.** `reject_contribution`: `4Q9Hpc74...AfzrDvc`, slot 501,466,908, with exact Task and Contribution read-back and a byte-identical Project account. See `DEVNET-PROOF-BROWSER.md`. |
+| Hosted web demo | DONE — https://buildshare-umber.vercel.app is Demo by default with an explicit Live Devnet switch; root, SPA route and production bundle were verified on 22 Sep 2026 from commit `6c19b3c`; no wallet was connected and no transaction was sent during hosted verification. |
 | Mainnet | NOT DONE |
 | Real users | NONE |
 | `expire_claim` proven | YES — signed in a browser on 17 Sep 2026 after the real 7-day window elapsed: `4NpegSS6...tYgre`, slot 499,867,813 |
 | `update_task` proven | YES — browser-signed on 20 Sep 2026: `3zD2FDS...9Zmzi`, slot 501,281,921; reward 100 -> 200 bps with exact hash and account read-back |
 | `reject_contribution` proven | YES — browser-signed on 20 Sep 2026: `4Q9Hpc74...AfzrDvc`, slot 501,466,908; Task and Contribution became REJECTED, reservation stayed committed and Project bytes did not change |
 
-Total test count across three layers: 355 = 295 TypeScript + 31 Rust + 29 Anchor.
+Total test count across three layers: 356 = 296 TypeScript + 31 Rust + 29 Anchor.
 
 Two defects were found and fixed after the browser claim proof. The allocation
 recipient was read from the user record instead of the task commitment, which
@@ -291,7 +292,7 @@ src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
 src/components/OnchainTaskButton.tsx    one Create on chain button per task row
-tests/                           44 TS suites, 295 tests
+tests/                           44 TS suites, 296 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -376,12 +377,12 @@ claim_task was signed in a browser on 10 Sep 2026: signature
 Task PDA HCzZ63bGUF583WVo1yr3pcvYL7kJGNDp831gWH7u2UYV, commitment hash on chain identical
 to local state, committed_bps 0 -> 500. See section 3 of DEVNET-PROOF-BROWSER.md.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
-6. DONE. README test counts are 295 TS / 355 total, verified on
-20 Sep 2026.
+6. DONE. README test counts are 296 TS / 356 total, verified on
+22 Sep 2026.
 
 7. BUILD-006 proved a distinct contributor signer address on 22 Sep 2026.
    Remaining optional work: a contributor operated by an external person;
-   an external accounting review; code-splitting the 624 kB bundle; a dedicated
+   an external accounting review; code-splitting the 698.98 kB production bundle; a dedicated
    RPC endpoint; and silencing the ambiguous glob re-export warning in
    `programs/buildshare/src/instructions/mod.rs`.
 
@@ -399,9 +400,10 @@ pre-approval evidence blocker without changing the frozen program.
 The browser created the Contribution account at submission time and
 then rejected it with Reject Reason v1. BUILD-006 subsequently proved
 the ownership path with distinct founder and contributor signer addresses.
+The hosted Demo-by-default web app with explicit Live Devnet switching is
+verified at https://buildshare-umber.vercel.app from commit `6c19b3c`.
 Remaining product work is an externally operated contributor wallet,
-external accounting review, real PR diff data, hosted Live mode and a
-non-demo AI provider when approved.
+external accounting review, real PR diff data and a non-demo AI provider.
 
 
 ---
@@ -584,7 +586,7 @@ independent external human contributor.
 
 Current gates:
 
-- TypeScript `295/295`, 44 suites;
+- TypeScript `296/296`, 44 suites;
 - Rust `31/31`;
 - Anchor integration `29/29` on a local validator;
 - `npx tsc --noEmit`, build and `git diff --check` all pass.
@@ -593,9 +595,11 @@ Pull request #1 remains open and intentionally draft. BUILD-005 used the
 GitHub API merge ref present at submission time; it did not claim that the PR
 was merged.
 
-The browser proofs used `localhost:5174`; confirm current process state before
-resuming. No Mainnet transaction was sent. `.agents/` and `skills-lock.json`
-are unrelated untracked files and must not be included.
+The on-chain browser proofs used `localhost:5174`. The hosted UI was separately
+verified at https://buildshare-umber.vercel.app in both Demo and Live Devnet
+modes without connecting a wallet or sending a transaction. No Mainnet
+transaction was sent. `.agents/` and `skills-lock.json` are unrelated
+untracked files and must not be included.
 
 
 Next product actions:
@@ -603,7 +607,7 @@ Next product actions:
 1. Keep PR #1 draft unless separately approved.
 2. Repeat the lifecycle with a contributor operated by an external person.
 3. Obtain an external accounting and security review.
-4. Publish a hosted Live-mode demo and replace the deterministic Demo AI provider.
+4. Replace the deterministic Demo AI provider with a non-demo provider when approved.
 
 
 The dated grant package is regenerated separately from committed repository files.
