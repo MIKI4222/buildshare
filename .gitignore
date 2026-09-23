@@ -21,3 +21,13 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Rust / Anchor build artifacts
+target/
+.anchor/
+test-ledger/
+*.so
+
+# Program and wallet keypairs - NEVER commit
+**/*-keypair.json
+id.json

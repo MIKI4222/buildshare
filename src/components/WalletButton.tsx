@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Wallet, Copy, ExternalLink, LogOut, ChevronDown } from 'lucide-react';
 import { Button } from './ui/Button';
-import { Badge } from './ui/Badge';
 import { useApp } from '../store/app-context';
-import { shortAddress } from '../lib/solana/wallet';
+import { shortAddress } from '../lib/short-address';
 import { explorerAddrUrl } from '../providers';
 
 export function WalletButton() {

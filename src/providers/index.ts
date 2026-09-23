@@ -1,36 +1,86 @@
+// Provider registry and mode switching.
+//
+// P0 rules:
+//  - Demo and Live are separate objects; switching mode really rebuilds them.
+//  - Live mode NEVER silently falls back to the demo provider. If live mode is
+//    not configured, getProviders('live') throws LIVE_MODE_UNAVAILABLE and the
+//    UI must show the error.
+
+import type { AppMode } from '../domain/types';
 import { DemoAIProvider } from './ai/demo';
-import { DemoGitHubProvider } from './github/demo';
-import { DemoSolanaProvider } from './solana/demo';
-import { LiveSolanaProvider } from './solana/live';
 import type { AIProvider } from './ai/types';
+import { DemoGitHubProvider } from './github/demo';
 import type { GitHubProvider } from './github/types';
+import { DemoSolanaProvider } from './solana/demo';
+import { LiveSolanaProvider, readLiveConfig } from './solana/live';
 import type { SolanaProvider } from './solana/types';
 
 export interface Providers {
-  ai: AIProvider;
-  github: GitHubProvider;
+  mode: AppMode;
   solana: SolanaProvider;
+  github: GitHubProvider;
+  ai: AIProvider;
 }
 
-export function createProviders(mode: 'demo' | 'live'): Providers {
-  if (mode === 'live') {
-    return {
-      ai: new DemoAIProvider(), // Swap for LiveAIProvider when AI_API_KEY is set
-      github: new DemoGitHubProvider(), // Swap for LiveGitHubProvider when GitHub creds are set
-      solana: new LiveSolanaProvider(import.meta.env.VITE_SOLANA_NETWORK || 'devnet'),
-    };
+export interface LiveAvailability {
+  available: boolean;
+  reason: string | null;
+  network: string | null;
+  programId: string | null;
+}
+
+export function liveAvailability(): LiveAvailability {
+  const result = readLiveConfig();
+  if (!result.ok || !result.config) {
+    return { available: false, reason: result.reason, network: null, programId: null };
   }
   return {
-    ai: new DemoAIProvider(),
-    github: new DemoGitHubProvider(),
-    solana: new DemoSolanaProvider(),
+    available: true,
+    reason: null,
+    network: result.config.network,
+    programId: result.config.programId,
   };
 }
 
-export { DemoAIProvider, DemoGitHubProvider, DemoSolanaProvider, LiveSolanaProvider };
-export type { AIProvider, ContributionVerification, ContributionVerificationInput } from './ai/types';
-export type { GitHubProvider, GitHubRepo, GitHubPR } from './github/types';
-export type { SolanaProvider, SolanaAllocationResult, SolanaProjectAccount } from './solana/types';
-export { parseTaskReference } from './github/types';
-export { calculateOverallScore, scoreToRecommendation, SCORE_WEIGHTS } from './ai/types';
-export { explorerTxUrl, explorerAddrUrl } from './solana/types';
+function buildProviders(mode: AppMode): Providers {
+  if (mode === 'live') {
+    // Throws if PROGRAM_ID is missing / malformed / the System Program.
+    const solana = LiveSolanaProvider.fromEnv();
+    return {
+      mode,
+      solana,
+      github: new DemoGitHubProvider(),
+      ai: new DemoAIProvider(),
+    };
+  }
+  return {
+    mode,
+    solana: new DemoSolanaProvider(),
+    github: new DemoGitHubProvider(),
+    ai: new DemoAIProvider(),
+  };
+}
+
+const cache = new Map<AppMode, Providers>();
+
+export function getProviders(mode: AppMode): Providers {
+  const cached = cache.get(mode);
+  if (cached) return cached;
+  const providers = buildProviders(mode);
+  cache.set(mode, providers);
+  return providers;
+}
+
+export function resetProviderCache(): void {
+  cache.clear();
+}
+
+// Kept for backwards compatibility with existing call sites.
+export function createProviders(mode: AppMode): Providers {
+  return getProviders(mode);
+}
+
+// Explorer helpers re-exported for UI call sites. explorerTxUrl throws for any
+// value that is not a real base58 transaction signature.
+export { explorerTxUrl, explorerAddressUrl, isRealSignature } from './solana/types';
+export { explorerAddressUrl as explorerAddrUrl } from './solana/types';

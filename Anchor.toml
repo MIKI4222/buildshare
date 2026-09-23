@@ -1,0 +1,26 @@
+[toolchain]
+anchor_version = "1.1.2"
+package_manager = "npm"
+
+[features]
+resolution = true
+skip-lint = false
+
+# PROGRAM_ID: generated for the Devnet deploy target (P1 STEP 5).
+# Derived from target/deploy/buildshare-keypair.json, which is gitignored.
+# The program is NOT yet deployed to any cluster; see README.md for status.
+[programs.devnet]
+buildshare = "6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G"
+
+[programs.localnet]
+buildshare = "6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "npx tsx --test tests/anchor/*.test.ts"

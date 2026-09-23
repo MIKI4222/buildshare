@@ -1,25 +1,34 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "buildshare",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MIKI4222/buildshare.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:anchor": "node --import tsx --test tests/anchor/*.test.ts",
+    "test:rust": "cargo test --manifest-path programs/buildshare/Cargo.toml"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",
-    "@supabase/supabase-js": "^2.57.4",
     "lucide-react": "^0.446.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
+    "@anchor-lang/core": "^1.1.2",
     "@eslint/js": "^9.9.1",
+    "@types/node": "^22.7.4",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -30,6 +39,7 @@
     "globals": "^15.9.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.19.1",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",
     "vite": "^5.4.2"

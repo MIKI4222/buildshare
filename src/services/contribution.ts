@@ -1,21 +1,30 @@
-// ContributionService — orchestrates the contribution lifecycle.
-// Depends on provider interfaces, not concrete implementations.
+// ContributionService - orchestrates verification and allocation through
+// provider interfaces. It never mutates state itself: the domain reducers own
+// all state changes, this service only talks to the outside world.
 
+import { computeAIEvaluationHash } from '../domain/evidence';
+import type { AIRecommendation } from '../domain/types';
 import type { AIProvider, ContributionVerificationInput } from '../providers/ai/types';
-import type { SolanaProvider } from '../providers/solana/types';
 import { calculateOverallScore, scoreToRecommendation } from '../providers/ai/types';
-import { computeEvidenceHash, type ContributionEvidence } from '../domain/evidence';
+import type {
+  AllocateOwnershipInput,
+  SolanaProvider,
+  SolanaResult,
+} from '../providers/solana/types';
 
 export interface VerifyResult {
-  score: number;
-  requirementsScore: number;
+  model: string;
+  promptVersion: string;
+  overallScore: number;
+  requirementScore: number;
   qualityScore: number;
-  testsScore: number;
+  testScore: number;
   securityScore: number;
-  recommendation: 'APPROVE' | 'REVIEW' | 'REJECT';
+  recommendation: AIRecommendation;
   reason: string;
   codeSummary: string;
-  evidenceHash: string;
+  rawResponse: string;
+  evaluationHash: string;
 }
 
 export class ContributionService {
@@ -24,42 +33,47 @@ export class ContributionService {
     private solana: SolanaProvider,
   ) {}
 
-  async verify(input: ContributionVerificationInput, evidence: ContributionEvidence): Promise<VerifyResult> {
+  get solanaMode(): 'demo' | 'live' {
+    return this.solana.mode;
+  }
+
+  async verify(input: ContributionVerificationInput): Promise<VerifyResult> {
     const result = await this.ai.verifyContribution(input);
-    const evidenceHash = await computeEvidenceHash(evidence);
+    const rawResponse = JSON.stringify(result);
+    const evaluationHash = await computeAIEvaluationHash({
+      model: this.ai.name,
+      promptVersion: this.ai.promptVersion,
+      overallScore: result.score,
+      recommendation: result.recommendation,
+      rawResponse,
+    });
     return {
-      score: result.score,
-      requirementsScore: result.requirementsScore,
+      model: this.ai.name,
+      promptVersion: this.ai.promptVersion,
+      overallScore: result.score,
+      requirementScore: result.requirementsScore,
       qualityScore: result.qualityScore,
-      testsScore: result.testsScore,
+      testScore: result.testsScore,
       securityScore: result.securityScore,
       recommendation: result.recommendation,
       reason: result.reason,
       codeSummary: result.codeSummary,
-      evidenceHash,
+      rawResponse,
+      evaluationHash,
     };
   }
 
-  calculateScore(
-    requirements: number,
-    quality: number,
-    tests: number,
-    security: number,
-  ): number {
+  calculateScore(requirements: number, quality: number, tests: number, security: number): number {
     return calculateOverallScore(requirements, quality, tests, security);
   }
 
-  recommendation(score: number): 'APPROVE' | 'REVIEW' | 'REJECT' {
+  recommendation(score: number): AIRecommendation {
     return scoreToRecommendation(score);
   }
 
-  async allocateOwnership(params: {
-    contributorWallet: string;
-    projectId: string;
-    taskId: string;
-    rewardBps: number;
-    evidenceHash: string;
-  }) {
-    return this.solana.allocateOwnership(params);
+  // Returns a discriminated SolanaResult. A demo result cannot carry a
+  // signature; a live result only exists if a real transaction happened.
+  async allocateOwnership(input: AllocateOwnershipInput): Promise<SolanaResult> {
+    return this.solana.allocateOwnership(input);
   }
 }

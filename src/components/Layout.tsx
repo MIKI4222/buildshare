@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { Menu, X, Github, Layers, Home, FolderKanban, GitPullRequest, Compass, Settings } from 'lucide-react';
 import { WalletButton } from './WalletButton';
-import { ModeIndicator, NetworkIndicator } from './ModeIndicator';
+import { ModeIndicator, ModeSwitcher, NetworkIndicator } from './ModeIndicator';
 import { useApp } from '../store/app-context';
 
 const navItems = [
@@ -53,6 +53,7 @@ export function Layout() {
               <div className="hidden sm:flex items-center gap-2">
                 <NetworkIndicator />
                 <ModeIndicator compact />
+                <ModeSwitcher compact />
               </div>
               <WalletButton />
               <button
@@ -88,6 +89,7 @@ export function Layout() {
               <div className="flex items-center gap-2 px-3 py-2">
                 <NetworkIndicator />
                 <ModeIndicator compact />
+                <ModeSwitcher compact />
               </div>
               <NavLink to="/settings" onClick={() => setMobileOpen(false)}
                 className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-ink-600 hover:bg-ink-50">
