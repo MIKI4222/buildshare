@@ -31,6 +31,7 @@ import {
   computeSubmissionEvidenceHash,
   SUBMISSION_EVIDENCE_SCHEMA_VERSION,
 } from '../domain/evidence';
+import { hashAcceptanceCriteria } from '../domain/commitment';
 
 const STORAGE_KEY = 'buildshare-db-v2';
 const MODE_KEY = 'buildshare-mode-v1';
@@ -401,9 +402,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // STOP-8: the candidate is chosen here, once, and never incremented on
       // failure. The provider refuses an occupied PDA rather than trying again.
       const candidate = domain.nextOnchainTaskIdCandidate(db, project.id);
-      const commitmentModule = await import('../domain/commitment');
       const repoRefModule = await import('../domain/repo-ref');
-      const acceptanceCriteriaHash = await commitmentModule.hashAcceptanceCriteria(
+      const acceptanceCriteriaHash = await hashAcceptanceCriteria(
         task.acceptanceCriteria,
       );
       const repoRefHash = await repoRefModule.hashRepoRef(
@@ -471,9 +471,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         actorUserId: CURRENT_USER_ID,
         patch: domainPatch,
       });
-      const commitmentModule = await import('../domain/commitment');
       const repoRefModule = await import('../domain/repo-ref');
-      const acceptanceCriteriaHash = await commitmentModule.hashAcceptanceCriteria(
+      const acceptanceCriteriaHash = await hashAcceptanceCriteria(
         preview.task.acceptanceCriteria,
       );
       const repoRefHash = await repoRefModule.hashRepoRef(

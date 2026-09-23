@@ -30,7 +30,13 @@ import {
   u16le,
   u64le,
 } from '../../lib/solana/pda';
-import { decodeProjectAccount, type OnchainProjectAccount } from '../../lib/solana/decode';
+import {
+  decodeContributionAccount,
+  decodeProjectAccount,
+  decodeTaskAccount,
+  type OnchainProjectAccount,
+} from '../../lib/solana/decode';
+import { hashToBytes } from '../../domain/hash';
 
 export const DEFAULT_RPC: Record<SolanaNetwork, string> = {
   devnet: 'https://api.devnet.solana.com',
@@ -557,8 +563,7 @@ export class LiveSolanaProvider implements SolanaProvider {
         { taskId: input.taskId },
       );
     }
-    const decodeModule = await import('../../lib/solana/decode');
-    const current = decodeModule.decodeTaskAccount(new Uint8Array(before.data));
+    const current = decodeTaskAccount(new Uint8Array(before.data));
     // is_claimable() in task.rs accepts Open, Expired and Rejected. The
     // client must not be stricter than the program it talks to.
     const claimable =
@@ -585,8 +590,7 @@ export class LiveSolanaProvider implements SolanaProvider {
       );
     }
 
-    const hashModule = await import('../../domain/hash');
-    const data = encodeClaimTaskData(hashModule.hashToBytes(input.commitmentHash));
+    const data = encodeClaimTaskData(hashToBytes(input.commitmentHash));
 
     const program = new PublicKey(this.programId);
     const projectKey = new PublicKey(projectPda);
@@ -634,7 +638,7 @@ export class LiveSolanaProvider implements SolanaProvider {
         { taskId: input.taskId, signature },
       );
     }
-    const stored = decodeModule.decodeTaskAccount(new Uint8Array(after.data));
+    const stored = decodeTaskAccount(new Uint8Array(after.data));
     const mismatch =
       stored.status !== 'CLAIMED' ||
       stored.contributor !== contributorKey.toBase58() ||
@@ -704,12 +708,11 @@ export class LiveSolanaProvider implements SolanaProvider {
     await this.ensureTaskPdaAvailable(projectPda, input.onchainTaskId);
     const taskPda = await this.deriveTaskPda(projectPda, input.onchainTaskId);
 
-    const hashModule = await import('../../domain/hash');
     const data = encodeCreateTaskData(
       input.onchainTaskId,
       input.rewardBps,
-      hashModule.hashToBytes(input.acceptanceCriteriaHash),
-      hashModule.hashToBytes(input.repoRefHash),
+      hashToBytes(input.acceptanceCriteriaHash),
+      hashToBytes(input.repoRefHash),
     );
 
     const program = new PublicKey(this.programId);
@@ -761,8 +764,7 @@ export class LiveSolanaProvider implements SolanaProvider {
         { taskId: input.taskId, signature },
       );
     }
-    const decodeModule = await import('../../lib/solana/decode');
-    const decoded = decodeModule.decodeTaskAccount(new Uint8Array(info.data));
+    const decoded = decodeTaskAccount(new Uint8Array(info.data));
     const mismatch =
       decoded.taskId !== String(input.onchainTaskId) ||
       decoded.project !== projectPda ||
@@ -860,9 +862,8 @@ export class LiveSolanaProvider implements SolanaProvider {
       );
     }
 
-    const decodeModule = await import('../../lib/solana/decode');
-    const project = decodeModule.decodeProjectAccount(new Uint8Array(projectInfo.data));
-    const before = decodeModule.decodeTaskAccount(new Uint8Array(taskInfo.data));
+    const project = decodeProjectAccount(new Uint8Array(projectInfo.data));
+    const before = decodeTaskAccount(new Uint8Array(taskInfo.data));
 
     if (
       project.founder !== input.founderWallet ||
@@ -896,9 +897,8 @@ export class LiveSolanaProvider implements SolanaProvider {
       );
     }
 
-    const hashModule = await import('../../domain/hash');
-    const acceptanceBytes = hashModule.hashToBytes(input.acceptanceCriteriaHash);
-    const repoBytes = hashModule.hashToBytes(input.repoRefHash);
+    const acceptanceBytes = hashToBytes(input.acceptanceCriteriaHash);
+    const repoBytes = hashToBytes(input.repoRefHash);
     const allZero = (bytes: Uint8Array) => bytes.every((value) => value === 0);
     if (allZero(acceptanceBytes)) {
       throw domainError(
@@ -946,7 +946,7 @@ export class LiveSolanaProvider implements SolanaProvider {
         { taskId: input.taskId, signature },
       );
     }
-    const after = decodeModule.decodeTaskAccount(new Uint8Array(afterInfo.data));
+    const after = decodeTaskAccount(new Uint8Array(afterInfo.data));
     if (
       after.status !== 'OPEN' ||
       after.reservedCommitted ||
@@ -1030,8 +1030,7 @@ export class LiveSolanaProvider implements SolanaProvider {
         { taskId: input.taskId },
       );
     }
-    const decodeModule = await import('../../lib/solana/decode');
-    const current = decodeModule.decodeTaskAccount(new Uint8Array(before.data));
+    const current = decodeTaskAccount(new Uint8Array(before.data));
     if (current.status !== 'CLAIMED') {
       throw domainError(
         'INVARIANT_VIOLATION',
@@ -1062,8 +1061,7 @@ export class LiveSolanaProvider implements SolanaProvider {
         { contributionId: input.contributionId },
       );
     }
-    const hashModule = await import('../../domain/hash');
-    const evidenceBytes = hashModule.hashToBytes(input.evidenceHash);
+    const evidenceBytes = hashToBytes(input.evidenceHash);
     const data = encodeSubmitContributionData(input.attempt, evidenceBytes);
     const tx = new web3.Transaction();
     // Account order and flags copied from the IDL for submit_contribution.
@@ -1225,15 +1223,14 @@ export class LiveSolanaProvider implements SolanaProvider {
       );
     }
 
-    const decodeModule = await import('../../lib/solana/decode');
     const beforeProjectBytes = new Uint8Array(projectInfo.data);
     const beforeProject =
-      decodeModule.decodeProjectAccount(beforeProjectBytes);
-    const beforeTask = decodeModule.decodeTaskAccount(
+      decodeProjectAccount(beforeProjectBytes);
+    const beforeTask = decodeTaskAccount(
       new Uint8Array(taskInfo.data),
     );
     const beforeContribution =
-      decodeModule.decodeContributionAccount(
+      decodeContributionAccount(
         new Uint8Array(contributionInfo.data),
       );
 
@@ -1279,8 +1276,7 @@ export class LiveSolanaProvider implements SolanaProvider {
       );
     }
 
-    const hashModule = await import('../../domain/hash');
-    const reasonBytes = hashModule.hashToBytes(input.rejectReasonHash);
+    const reasonBytes = hashToBytes(input.rejectReasonHash);
     const data = encodeRejectContributionData(reasonBytes);
     const tx = new web3.Transaction().add(
       new web3.TransactionInstruction({
@@ -1352,11 +1348,11 @@ export class LiveSolanaProvider implements SolanaProvider {
       }
     }
 
-    const afterTask = decodeModule.decodeTaskAccount(
+    const afterTask = decodeTaskAccount(
       new Uint8Array(afterTaskInfo.data),
     );
     const afterContribution =
-      decodeModule.decodeContributionAccount(
+      decodeContributionAccount(
         new Uint8Array(afterContributionInfo.data),
       );
 
@@ -1446,8 +1442,7 @@ export class LiveSolanaProvider implements SolanaProvider {
         { taskId: input.taskId },
       );
     }
-    const decodeModule = await import('../../lib/solana/decode');
-    const current = decodeModule.decodeTaskAccount(new Uint8Array(before.data));
+    const current = decodeTaskAccount(new Uint8Array(before.data));
     if (current.status !== 'CLAIMED') {
       throw domainError(
         'NOT_CLAIMABLE',
@@ -1500,7 +1495,7 @@ export class LiveSolanaProvider implements SolanaProvider {
           { taskId: input.taskId, signature },
         );
       }
-      const stored = decodeModule.decodeTaskAccount(new Uint8Array(after.data));
+      const stored = decodeTaskAccount(new Uint8Array(after.data));
       if (stored.status !== 'EXPIRED') {
         throw domainError(
           'INVARIANT_VIOLATION',
@@ -1596,11 +1591,10 @@ export class LiveSolanaProvider implements SolanaProvider {
       );
     }
 
-    const decodeModule = await import('../../lib/solana/decode');
-    const beforeProject = decodeModule.decodeProjectAccount(
+    const beforeProject = decodeProjectAccount(
       new Uint8Array(projectInfo.data),
     );
-    const beforeTask = decodeModule.decodeTaskAccount(new Uint8Array(taskInfo.data));
+    const beforeTask = decodeTaskAccount(new Uint8Array(taskInfo.data));
 
     if (
       beforeProject.founder !== input.founderWallet ||
@@ -1684,10 +1678,10 @@ export class LiveSolanaProvider implements SolanaProvider {
       );
     }
 
-    const afterProject = decodeModule.decodeProjectAccount(
+    const afterProject = decodeProjectAccount(
       new Uint8Array(afterProjectInfo.data),
     );
-    const afterTask = decodeModule.decodeTaskAccount(
+    const afterTask = decodeTaskAccount(
       new Uint8Array(afterTaskInfo.data),
     );
     if (

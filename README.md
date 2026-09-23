@@ -15,12 +15,12 @@ BuildShare is not a bounty or payment platform. Nothing is paid out; ownership i
 ## Current status
 
 This repository is at **P1: Solana on-chain MVP**. The on-chain program is compiled, deployed to Solana Devnet and
-exercised end to end: one contributor ownership allocation has been settled on chain with publicly verifiable
+exercised end to end: two contributor ownership allocations have been settled on chain with publicly verifiable
 transaction signatures. The table below is the honest state of verification as of the latest commit.
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| Off-chain domain model, ownership accounting, state machines | **PASS** | `npm test` — 296 tests, 44 suites, 0 failures |
+| Off-chain domain model, ownership accounting, state machines | **PASS** | `npm test` — 299 tests, 45 suites, 0 failures |
 | TypeScript typecheck | **PASS** | `npx tsc --noEmit -p tsconfig.app.json` — exit 0 |
 | PDA seed parity between Rust and TypeScript | **PASS** | `tests/pda.test.ts` |
 | Lifecycle parity between Rust handlers and off-chain reducers | **PASS** | `tests/lifecycle-parity.test.ts` |
@@ -137,7 +137,7 @@ lifecycle with distinct founder and contributor signer addresses.
 
 ```bash
 npm install
-npm test              # 296 TypeScript tests, 44 suites
+npm test              # 299 TypeScript tests, 45 suites
 npm run test:rust     # 31 Rust unit tests, needs cargo
 npm run test:anchor   # 29 integration tests, needs a running validator
 npm run dev     # starts the app in demo mode
@@ -146,7 +146,7 @@ npx tsc --noEmit -p tsconfig.app.json
 
 The Anchor parity tests under `tests/anchor/` are separate from `npm test`.
 The latest verified run passed 29/29 tests against a local validator. Rust unit tests
-passed 31/31, and TypeScript passed 296/296 across 44 suites.
+passed 31/31, and TypeScript passed 299/299 across 45 suites.
 
 The frozen program is deployed on Solana Devnet as
 `6CeFTzDPHrZqcWJ5WLvJCTTz1c2n6vSUGRvEPGgJjw3G`, deployment slot `492442102`.

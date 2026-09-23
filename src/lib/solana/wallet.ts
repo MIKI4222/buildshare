@@ -91,11 +91,6 @@ export function getConnection(network: string = 'devnet'): Connection {
   return new Connection(rpcUrl, 'confirmed');
 }
 
-export function shortAddress(addr: string, prefix = 4, suffix = 4): string {
-  if (addr.length <= prefix + suffix + 1) return addr;
-  return `${addr.slice(0, prefix)}...${addr.slice(-suffix)}`;
-}
-
 // Copies bytes into a standalone ArrayBuffer so WebCrypto always receives a
 // plain BufferSource (a Uint8Array can be backed by a SharedArrayBuffer).
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {

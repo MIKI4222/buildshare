@@ -25,7 +25,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { timeAgo } from './DashboardPage';
 import { Modal } from '../components/ui/Modal';
 import { shortHash } from '../domain/evidence';
-import { shortAddress } from '../lib/solana/wallet';
+import { shortAddress } from '../lib/short-address';
 import { explorerTxUrl } from '../providers/solana/types';
 
 const TAB_COLOR = 'text-ink-400';

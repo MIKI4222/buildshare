@@ -55,7 +55,7 @@ output.
 | Anchor program compiles (`anchor build`) | PASS |
 | Rust unit tests (`cargo test`) | PASS, 31/31 |
 | Anchor integration tests | PASS, 29/29, **on a local validator, not Devnet** |
-| TypeScript tests (`npm test`) | PASS, 296/296, 44 suites |
+| TypeScript tests (`npm test`) | PASS, 299/299, 45 suites |
 | `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
 | `npm run build` | PASS |
 | Program deployed to Devnet | DONE, slot 492442102 |
@@ -292,7 +292,7 @@ src/providers/solana/live.ts     real Devnet provider (read + write paths)
 src/store/app-context.tsx        React context, all app actions
 src/components/OnchainProjectPanel.tsx  reads chain state, one Publish button
 src/components/OnchainTaskButton.tsx    one Create on chain button per task row
-tests/                           44 TS suites, 296 tests
+tests/                           45 TS suites, 299 tests
 tests/anchor/                    4 integration suites, 29 tests, need a validator
 scripts/devnet-lifecycle.mts     end-to-end Devnet run (proof #1)
 scripts/devnet-branches.mts      reject / re-claim / cancel branches (proof #2)
@@ -377,14 +377,18 @@ claim_task was signed in a browser on 10 Sep 2026: signature
 Task PDA HCzZ63bGUF583WVo1yr3pcvYL7kJGNDp831gWH7u2UYV, commitment hash on chain identical
 to local state, committed_bps 0 -> 500. See section 3 of DEVNET-PROOF-BROWSER.md.
 Do NOT import ~/.config/solana/id.json into a browser wallet.
-6. DONE. README test counts are 296 TS / 356 total, verified on
-22 Sep 2026.
+6. DONE. README test counts are 299 TS / 359 total, verified on
+23 Sep 2026.
 
 7. BUILD-006 proved a distinct contributor signer address on 22 Sep 2026.
    Remaining optional work: a contributor operated by an external person;
-   an external accounting review; code-splitting the 698.98 kB production bundle; a dedicated
-   RPC endpoint; and silencing the ambiguous glob re-export warning in
+   an external accounting review; a dedicated RPC endpoint; and silencing the
+   ambiguous glob re-export warning in
    `programs/buildshare/src/instructions/mod.rs`.
+
+   DONE on 23 Sep 2026: the production build now separates the 310.21 kB Solana SDK
+   chunk from the 384.50 kB main chunk. No chunk exceeds 500 kB, and the mixed
+   static/dynamic import warnings are gone.
 
 8. DONE. `expire_claim` was signed on 17 Sep 2026 once the 7-day window of attempt 1
 had really elapsed: `4NpegSS6...tYgre`, slot 499,867,813. It was not faked, and the
@@ -586,7 +590,7 @@ independent external human contributor.
 
 Current gates:
 
-- TypeScript `296/296`, 44 suites;
+- TypeScript `299/299`, 45 suites;
 - Rust `31/31`;
 - Anchor integration `29/29` on a local validator;
 - `npx tsc --noEmit`, build and `git diff --check` all pass.
