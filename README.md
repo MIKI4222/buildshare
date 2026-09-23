@@ -184,3 +184,9 @@ Next, and these are **targets, not achievements**:
 
 The project's key metric is the number of contributor ownership allocations settled on Solana Devnet with
 publicly verifiable transaction signatures. That count is currently **two**. The staged targets are 10 and 20.
+
+---
+
+## License
+
+BuildShare is licensed under the Apache License 2.0. See the LICENSE file.
