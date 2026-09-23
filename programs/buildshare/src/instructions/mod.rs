@@ -1,3 +1,8 @@
+// Anchor's #[program] macro resolves generated __client_accounts_* modules
+// through these instruction glob re-exports. The repeated handler name is
+// intentional and handlers are always called through their module paths.
+#![allow(ambiguous_glob_reexports)]
+
 pub mod allocate_ownership;
 pub mod approve_contribution;
 pub mod cancel_task;

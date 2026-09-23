@@ -382,9 +382,11 @@ Do NOT import ~/.config/solana/id.json into a browser wallet.
 
 7. BUILD-006 proved a distinct contributor signer address on 22 Sep 2026.
    Remaining optional work: a contributor operated by an external person;
-   an external accounting review; a dedicated RPC endpoint; and silencing the
-   ambiguous glob re-export warning in
-   `programs/buildshare/src/instructions/mod.rs`.
+   an external accounting review; and a dedicated RPC endpoint.
+
+   DONE on 23 Sep 2026: the intentional Anchor instruction glob re-exports are
+   documented and their expected `ambiguous_glob_reexports` lint is locally
+   allowed. `cargo check` is warning-free and all 31 Rust tests pass.
 
    DONE on 23 Sep 2026: the production build now separates the 310.21 kB Solana SDK
    chunk from the 384.50 kB main chunk. No chunk exceeds 500 kB, and the mixed
